@@ -18,6 +18,7 @@
     "react-native-ble-plx": "latest",
     "react-native-quick-crypto": "latest",
     "react-native-mmkv": "latest",
+    "react-native-nitro-modules": "^0.37.1",
     "react-native-get-random-values": "latest",
     "@noble/curves": "latest",
     "@noble/hashes": "latest",
