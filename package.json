@@ -26,6 +26,7 @@
     "zustand": "latest",
     "react-native-haptic-feedback": "latest",
     "react-native-reanimated": "latest",
+    "react-native-worklets": "0.12.1",
     "@react-native-community/netinfo": "latest",
     "react-native-geolocation-service": "latest"
   },
