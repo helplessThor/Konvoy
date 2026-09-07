@@ -17,6 +17,7 @@ import {
   Vibration,
 } from 'react-native';
 import { Colors, Typography, Spacing, TouchTargets, Radius, Shadows } from '../theme/tokens';
+import { useSettingsStore } from '../../core/settings/settingsStore';
 
 interface SettingsScreenProps {
   sessionFingerprint?: string;
@@ -29,19 +30,27 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   onBurnIdentity,
   onClearCRDTCache,
 }) => {
-  // Radio toggles
-  const [bleEnabled, setBleEnabled] = useState(true);
-  const [wifiDirectEnabled, setWifiDirectEnabled] = useState(true);
-  const [nostrFallbackEnabled, setNostrFallbackEnabled] = useState(true);
+  // Persistent Settings from MMKV-backed store
+  const bleEnabled = useSettingsStore((state) => state.bleEnabled);
+  const setBleEnabled = useSettingsStore((state) => state.setBleEnabled);
 
-  // Audio toggles & config
-  const [noiseGateActive, setNoiseGateActive] = useState(true);
-  const [highContrastMode, setHighContrastMode] = useState(false);
-  const [pttToggleMode, setPttToggleMode] = useState(false); // false = hold, true = toggle
-  const [selectedBitrate, setSelectedBitrate] = useState<'8' | '12' | '16'>('12');
+  const wifiDirectEnabled = useSettingsStore((state) => state.wifiDirectEnabled);
+  const setWifiDirectEnabled = useSettingsStore((state) => state.setWifiDirectEnabled);
 
-  // Handlebar remote
-  const [handlebarConnected, setHandlebarConnected] = useState(true);
+  const nostrFallbackEnabled = useSettingsStore((state) => state.nostrFallbackEnabled);
+  const setNostrFallbackEnabled = useSettingsStore((state) => state.setNostrFallbackEnabled);
+
+  const noiseGateActive = useSettingsStore((state) => state.noiseGateActive);
+  const setNoiseGateActive = useSettingsStore((state) => state.setNoiseGateActive);
+
+  const pttToggleMode = useSettingsStore((state) => state.pttToggleMode);
+  const setPttToggleMode = useSettingsStore((state) => state.setPttToggleMode);
+
+  const selectedBitrate = useSettingsStore((state) => state.selectedBitrate);
+  const setSelectedBitrate = useSettingsStore((state) => state.setSelectedBitrate);
+
+  const handlebarConnected = useSettingsStore((state) => state.handlebarConnected);
+  const setHandlebarConnected = useSettingsStore((state) => state.setHandlebarConnected);
 
   const confirmBurnSession = () => {
     Vibration.vibrate(50);
@@ -248,7 +257,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   { color: handlebarConnected ? Colors.success : Colors.danger },
                 ]}
               >
-                {handlebarConnected ? 'CONNECTED' : 'DISCONNECTED'}
+                {handlebarConnected ? 'CONNECTED' : 'NOT PAIRED'}
               </Text>
             </View>
           </View>
@@ -257,10 +266,33 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             Bluetooth Media / BLE HID Handlebar Button mapped to instantaneous PTT toggle.
           </Text>
 
-          <View style={styles.deviceRow}>
-            <Text style={styles.deviceName}>Sena / Cardo / BLE PTT Remote</Text>
-            <Text style={styles.deviceBattery}>🔋 85%</Text>
-          </View>
+          {handlebarConnected ? (
+            <View style={styles.deviceRow}>
+              <Text style={styles.deviceName}>Bluetooth Handlebar Remote</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setHandlebarConnected(false);
+                  Vibration.vibrate(25);
+                }}
+              >
+                <Text style={styles.deviceActionText}>DISCONNECT</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <TouchableOpacity
+              style={styles.pairButton}
+              onPress={() => {
+                Alert.alert(
+                  'Bluetooth Pairing',
+                  'Turn on your Bluetooth handlebar button or headset remote. Android HID media controls are automatically recognized.'
+                );
+                Vibration.vibrate(25);
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.pairButtonText}>PAIR BLUETOOTH HANDLEBAR REMOTE</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* ─── Storage & Diagnostics ─────────────────────────────────── */}
@@ -476,10 +508,26 @@ const styles = StyleSheet.create({
     fontFamily: Typography.fontFamily.semibold,
     color: Colors.textPrimary,
   },
-  deviceBattery: {
+  deviceActionText: {
     fontSize: Typography.size.xs,
-    fontFamily: Typography.fontFamily.mono,
-    color: Colors.success,
+    fontFamily: Typography.fontFamily.bold,
+    color: Colors.danger,
+    letterSpacing: 0.5,
+  },
+  pairButton: {
+    backgroundColor: Colors.surface,
+    paddingVertical: Spacing.md,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pairButtonText: {
+    fontSize: Typography.size.xs,
+    fontFamily: Typography.fontFamily.bold,
+    color: Colors.primary,
+    letterSpacing: 1,
   },
   actionButtonSecondary: {
     height: TouchTargets.minimum,

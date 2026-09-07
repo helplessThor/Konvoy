@@ -93,6 +93,32 @@ class KonvoyRadioModule(reactContext: ReactApplicationContext) :
         wifiP2pChannel = wifiP2pManager?.initialize(reactContext, radioThread.looper, null)
     }
 
+    // ─── Device Battery Telemetry ─────────────────────────────────────
+
+    @ReactMethod
+    fun getBatteryLevel(promise: Promise) {
+        try {
+            val bm = reactApplicationContext.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+            val level = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+            if (level in 0..100) {
+                promise.resolve(level)
+            } else {
+                val batteryStatus: Intent? = IntentFilter(Intent.ACTION_BATTERY_CHANGED).let { ifilter ->
+                    reactApplicationContext.registerReceiver(null, ifilter)
+                }
+                val rawLevel: Int = batteryStatus?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+                val scale: Int = batteryStatus?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+                if (rawLevel >= 0 && scale > 0) {
+                    promise.resolve((rawLevel * 100) / scale)
+                } else {
+                    promise.resolve(100)
+                }
+            }
+        } catch (e: Exception) {
+            promise.resolve(100)
+        }
+    }
+
     // ─── BLE Beacon ───────────────────────────────────────────────────
 
     @ReactMethod

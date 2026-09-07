@@ -34,6 +34,8 @@ import { useConvoyStore, TelemetryManager } from './src/core/map/telemetry';
 import { useIntercomStore, IntercomMode } from './src/core/audio/intercom';
 import { useHazardStore } from './src/core/map/crdt';
 import { HazardType } from './src/core/net/wire';
+import { useSettingsStore } from './src/core/settings/settingsStore';
+import { useDeviceBattery } from './src/services/BatteryService';
 
 type TabKey = 'MAP' | 'INTERCOM' | 'SETTINGS';
 
@@ -56,11 +58,15 @@ export default function App(): React.JSX.Element {
   const ownPosition = useConvoyStore((state) => state.ownPosition);
   const convoyPeers = useConvoyStore((state) => state.peers);
 
-  const intercomMode = useIntercomStore((state) => state.mode);
+  // Persistent Settings
+  const intercomMode = useSettingsStore((state) => state.intercomMode);
+  const setIntercomMode = useSettingsStore((state) => state.setIntercomMode);
+  const pttToggleMode = useSettingsStore((state) => state.pttToggleMode);
+  const ownBattery = useDeviceBattery();
+
   const isTransmitting = useIntercomStore((state) => state.isTransmitting);
   const activeSpeakers = useIntercomStore((state) => state.activeSpeakers);
   const ownEnergy = useIntercomStore((state) => state.ownEnergy);
-  const setIntercomMode = useIntercomStore((state) => state.setMode);
   const setIsTransmitting = useIntercomStore((state) => state.setIsTransmitting);
 
   const hazards = useHazardStore((state) => state.hazards);
@@ -122,7 +128,7 @@ export default function App(): React.JSX.Element {
       peerId: peer.fingerprintHex,
       callsign: `Rider ${peer.fingerprintHex.substring(0, 4).toUpperCase()}`,
       role: (idx === 0 ? 'LEAD' : 'MEMBER') as 'LEAD' | 'TAIL' | 'MEMBER',
-      batteryPercent: 92,
+      batteryPercent: undefined,
       rssi: -62,
       isSpeaking: activeSpeakers.some((s) => s.fingerprintHex === peer.fingerprintHex),
       isMuted: false,
@@ -152,8 +158,16 @@ export default function App(): React.JSX.Element {
 
       {/* Handlebar BLE / Media button PTT toggle listener */}
       <HIDButtonListener
-        onPTTPress={handleStartTalk}
-        onPTTRelease={handleStopTalk}
+        onPTTPress={
+          pttToggleMode || intercomMode === IntercomMode.HandsFreeVAD
+            ? (isTransmitting ? handleStopTalk : handleStartTalk)
+            : handleStartTalk
+        }
+        onPTTRelease={
+          pttToggleMode || intercomMode === IntercomMode.HandsFreeVAD
+            ? () => {}
+            : handleStopTalk
+        }
       />
 
       {/* Screen Body */}
@@ -187,6 +201,8 @@ export default function App(): React.JSX.Element {
             onStartTalk={handleStartTalk}
             onStopTalk={handleStopTalk}
             peers={voicePeers}
+            ownBatteryPercent={ownBattery}
+            pttToggleMode={pttToggleMode}
           />
         )}
         {currentTab === 'SETTINGS' && (

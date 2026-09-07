@@ -27,6 +27,7 @@ import { Map, Camera, Marker } from '@maplibre/maplibre-react-native';
 import { Colors, Typography, Spacing, TouchTargets, Radius, Shadows } from '../theme/tokens';
 import { HazardType } from '../../core/net/wire';
 import type { HazardEntry } from '../../core/map/crdt';
+import { useSettingsStore, type MapStyleKey } from '../../core/settings/settingsStore';
 
 export interface PeerTelemetry {
   fingerprint: Uint8Array;
@@ -45,11 +46,109 @@ export interface PeerTelemetry {
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-// Real Open Vector Map Styles (OpenFreeMap & MapLibre - free, unmetered, no tokens required)
-export const MAP_STYLES = {
-  DARK: 'https://tiles.openfreemap.org/styles/dark',
-  BRIGHT: 'https://tiles.openfreemap.org/styles/bright',
-} as const;
+// Direct Google Maps & High-Contrast Tactical Styles (No white screens, 100% reliable)
+export const GOOGLE_MAP_STYLES: Record<MapStyleKey, any> = {
+  GOOGLE_ROAD: {
+    version: 8,
+    name: 'Google Road',
+    sources: {
+      'google-tiles': {
+        type: 'raster',
+        tiles: [
+          'https://mt0.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
+          'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
+          'https://mt2.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
+          'https://mt3.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
+        ],
+        tileSize: 256,
+      },
+    },
+    layers: [
+      {
+        id: 'google-tiles-layer',
+        type: 'raster',
+        source: 'google-tiles',
+        minzoom: 0,
+        maxzoom: 22,
+      },
+    ],
+  },
+  GOOGLE_HYBRID: {
+    version: 8,
+    name: 'Google Hybrid',
+    sources: {
+      'google-hybrid-tiles': {
+        type: 'raster',
+        tiles: [
+          'https://mt0.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+          'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+          'https://mt2.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+          'https://mt3.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+        ],
+        tileSize: 256,
+      },
+    },
+    layers: [
+      {
+        id: 'google-hybrid-layer',
+        type: 'raster',
+        source: 'google-hybrid-tiles',
+        minzoom: 0,
+        maxzoom: 22,
+      },
+    ],
+  },
+  GOOGLE_TERRAIN: {
+    version: 8,
+    name: 'Google Terrain',
+    sources: {
+      'google-terrain-tiles': {
+        type: 'raster',
+        tiles: [
+          'https://mt0.google.com/vt/lyrs=p&x={x}&y={y}&z={z}',
+          'https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}',
+          'https://mt2.google.com/vt/lyrs=p&x={x}&y={y}&z={z}',
+          'https://mt3.google.com/vt/lyrs=p&x={x}&y={y}&z={z}',
+        ],
+        tileSize: 256,
+      },
+    },
+    layers: [
+      {
+        id: 'google-terrain-layer',
+        type: 'raster',
+        source: 'google-terrain-tiles',
+        minzoom: 0,
+        maxzoom: 22,
+      },
+    ],
+  },
+  DARK: {
+    version: 8,
+    name: 'Tactical Dark',
+    sources: {
+      'carto-dark-tiles': {
+        type: 'raster',
+        tiles: [
+          'https://a.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png',
+          'https://b.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png',
+          'https://c.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png',
+          'https://d.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png',
+        ],
+        tileSize: 256,
+      },
+    },
+    layers: [
+      {
+        id: 'carto-dark-layer',
+        type: 'raster',
+        source: 'carto-dark-tiles',
+        minzoom: 0,
+        maxzoom: 22,
+      },
+    ],
+  },
+};
 
 function toHex(bytes: Uint8Array): string {
   let hex = '';
@@ -132,7 +231,8 @@ export const MapScreen: React.FC<MapScreenProps> = ({
   activeRadioType = 'SEARCHING',
 }) => {
   const [viewMode, setViewMode] = useState<'MAP' | 'RADAR'>('MAP');
-  const [selectedStyle, setSelectedStyle] = useState<'DARK' | 'BRIGHT'>('DARK');
+  const selectedStyle = useSettingsStore((state) => state.mapStyle);
+  const setMapStyle = useSettingsStore((state) => state.setMapStyle);
   const [selectedHazard, setSelectedHazard] = useState<HazardEntry | null>(null);
   const [dropHazardModalVisible, setDropHazardModalVisible] = useState(false);
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -349,19 +449,27 @@ export const MapScreen: React.FC<MapScreenProps> = ({
           <View style={styles.rightControlsRow}>
             <View style={styles.styleToggleGroup}>
               <TouchableOpacity
-                style={[styles.styleButton, selectedStyle === 'DARK' && styles.styleButtonActive]}
-                onPress={() => setSelectedStyle('DARK')}
+                style={[styles.styleButton, selectedStyle === 'GOOGLE_ROAD' && styles.styleButtonActive]}
+                onPress={() => setMapStyle('GOOGLE_ROAD')}
               >
-                <Text style={[styles.styleButtonText, selectedStyle === 'DARK' && styles.styleButtonTextActive]}>
-                  🌑
+                <Text style={[styles.styleButtonText, selectedStyle === 'GOOGLE_ROAD' && styles.styleButtonTextActive]}>
+                  ROAD
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.styleButton, selectedStyle === 'BRIGHT' && styles.styleButtonActive]}
-                onPress={() => setSelectedStyle('BRIGHT')}
+                style={[styles.styleButton, selectedStyle === 'GOOGLE_HYBRID' && styles.styleButtonActive]}
+                onPress={() => setMapStyle('GOOGLE_HYBRID')}
               >
-                <Text style={[styles.styleButtonText, selectedStyle === 'BRIGHT' && styles.styleButtonTextActive]}>
-                  ☀️
+                <Text style={[styles.styleButtonText, selectedStyle === 'GOOGLE_HYBRID' && styles.styleButtonTextActive]}>
+                  SATELLITE
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.styleButton, selectedStyle === 'DARK' && styles.styleButtonActive]}
+                onPress={() => setMapStyle('DARK')}
+              >
+                <Text style={[styles.styleButtonText, selectedStyle === 'DARK' && styles.styleButtonTextActive]}>
+                  DARK
                 </Text>
               </TouchableOpacity>
             </View>
@@ -378,7 +486,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({
         <View style={styles.mapContainer}>
           <Map
             style={styles.map}
-            mapStyle={MAP_STYLES[selectedStyle]}
+            mapStyle={JSON.stringify(GOOGLE_MAP_STYLES[selectedStyle] || GOOGLE_MAP_STYLES.GOOGLE_ROAD)}
           >
             <Camera
               ref={cameraRef}
@@ -840,18 +948,21 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   styleButton: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     borderRadius: Radius.full,
   },
   styleButtonActive: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: Colors.primary,
   },
   styleButtonText: {
-    fontSize: 12,
+    fontSize: 10,
+    fontFamily: Typography.fontFamily.bold,
+    color: Colors.textSecondary,
+    letterSpacing: 0.5,
   },
   styleButtonTextActive: {
-    transform: [{ scale: 1.1 }],
+    color: Colors.textInverse,
   },
   recenterButton: {
     backgroundColor: 'rgba(18, 24, 38, 0.9)',

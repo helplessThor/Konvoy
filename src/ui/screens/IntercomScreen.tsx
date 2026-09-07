@@ -24,7 +24,7 @@ interface PeerVoiceState {
   peerId: string;
   callsign: string;
   role: 'LEAD' | 'TAIL' | 'MEMBER';
-  batteryPercent: number;
+  batteryPercent?: number;
   rssi: number;
   isSpeaking: boolean;
   isMuted: boolean;
@@ -40,6 +40,8 @@ interface IntercomScreenProps {
   onModeChange?: (mode: IntercomMode) => void;
   currentAudioLevel?: number; // 0.0 to 1.0
   peers?: PeerVoiceState[];
+  ownBatteryPercent?: number;
+  pttToggleMode?: boolean;
 }
 
 export const IntercomScreen: React.FC<IntercomScreenProps> = ({
@@ -51,11 +53,15 @@ export const IntercomScreen: React.FC<IntercomScreenProps> = ({
   onModeChange,
   currentAudioLevel = 0,
   peers = [],
+  ownBatteryPercent,
+  pttToggleMode = false,
 }) => {
   const [selectedChannel, setSelectedChannel] = useState<'ALL' | 'LEAD' | 'TAIL'>('ALL');
   const [isMicMuted, setIsMicMuted] = useState(false);
   const [isDeafened, setIsDeafened] = useState(false);
   const [isHoldingPTT, setIsHoldingPTT] = useState(false);
+
+  const isToggleMode = pttToggleMode || intercomMode === IntercomMode.HandsFreeVAD;
 
   // Animation values
   const pulseRingAnim = useRef(new Animated.Value(1)).current;
@@ -142,6 +148,39 @@ export const IntercomScreen: React.FC<IntercomScreenProps> = ({
       Vibration.vibrate(20);
       onStopTalk?.();
     }
+  };
+
+  const handleToggleTalk = () => {
+    if (isMicMuted) return;
+    if (isTransmitting || isHoldingPTT) {
+      setIsHoldingPTT(false);
+      Vibration.vibrate(20);
+      onStopTalk?.();
+    } else {
+      setIsHoldingPTT(true);
+      Vibration.vibrate(40);
+      onStartTalk?.();
+    }
+  };
+
+  const getButtonTitle = () => {
+    if (isMicMuted) return 'MIC MUTED';
+    if (isTransmitting || isHoldingPTT) return 'TRANSMITTING';
+    if (isToggleMode) return 'TAP TO TALK';
+    return 'HOLD TO TALK';
+  };
+
+  const getButtonSubtext = () => {
+    if (isMicMuted) return 'Tap unmute below';
+    if (isTransmitting || isHoldingPTT) {
+      return isToggleMode ? 'Tap to stop' : 'Release to stop';
+    }
+    if (isToggleMode) {
+      return intercomMode === IntercomMode.HandsFreeVAD
+        ? 'Hands-Free (VOX) active'
+        : 'Tap once to talk';
+    }
+    return 'Direct Rider Link';
   };
 
   const toggleVAD = () => {
@@ -259,9 +298,10 @@ export const IntercomScreen: React.FC<IntercomScreenProps> = ({
             (isTransmitting || isHoldingPTT) && styles.pttButtonActive,
             isMicMuted && styles.pttButtonDisabled,
           ]}
-          onPressIn={handlePressIn}
-          onPressOut={handlePressOut}
-          activeOpacity={0.9}
+          onPress={isToggleMode ? handleToggleTalk : undefined}
+          onPressIn={!isToggleMode ? handlePressIn : undefined}
+          onPressOut={!isToggleMode ? handlePressOut : undefined}
+          activeOpacity={0.85}
         >
           <Text style={styles.pttIcon}>
             {isMicMuted ? '🔇' : isTransmitting || isHoldingPTT ? '🎙️' : '🔘'}
@@ -272,14 +312,10 @@ export const IntercomScreen: React.FC<IntercomScreenProps> = ({
               (isTransmitting || isHoldingPTT) && styles.pttButtonTextActive,
             ]}
           >
-            {isMicMuted
-              ? 'MIC MUTED'
-              : isTransmitting || isHoldingPTT
-              ? 'TRANSMITTING'
-              : 'HOLD TO TALK'}
+            {getButtonTitle()}
           </Text>
           <Text style={styles.pttSubText}>
-            {isMicMuted ? 'Tap unmute below' : 'Direct Rider Link'}
+            {getButtonSubtext()}
           </Text>
         </TouchableOpacity>
       </View>
@@ -331,7 +367,9 @@ export const IntercomScreen: React.FC<IntercomScreenProps> = ({
             <Text style={styles.peerMeta}>Your Headset & Microphone</Text>
           </View>
           <View style={styles.peerStatusColumn}>
-            <Text style={styles.peerBattery}>🔋 98%</Text>
+            {typeof ownBatteryPercent === 'number' && (
+              <Text style={styles.peerBattery}>🔋 {ownBatteryPercent}%</Text>
+            )}
             <Text style={[styles.peerLinkText, { color: Colors.success }]}>ACTIVE</Text>
           </View>
         </View>
@@ -380,7 +418,9 @@ export const IntercomScreen: React.FC<IntercomScreenProps> = ({
               </View>
 
               <View style={styles.peerStatusColumn}>
-                <Text style={styles.peerBattery}>🔋 {peer.batteryPercent}%</Text>
+                {typeof peer.batteryPercent === 'number' && (
+                  <Text style={styles.peerBattery}>🔋 {peer.batteryPercent}%</Text>
+                )}
                 <Text
                   style={[
                     styles.peerLinkText,
