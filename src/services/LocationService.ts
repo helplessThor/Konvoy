@@ -105,12 +105,30 @@ export class LocationService {
         this.handlePosition(position);
       },
       (error: GeoError) => {
-        console.warn('[LocationService] getCurrentPosition error:', error.message);
+        console.warn('[LocationService] High accuracy initial fix failed, attempting balanced fix:', error.message);
+        // Fallback to balanced accuracy (cell/WiFi) if satellite fix times out (e.g. indoors)
+        Geolocation.getCurrentPosition(
+          (pos: GeoPosition) => {
+            this.handlePosition(pos);
+          },
+          (fallbackErr: GeoError) => {
+            console.warn('[LocationService] Balanced location fallback failed:', fallbackErr.message);
+          },
+          {
+            enableHighAccuracy: false,
+            timeout: 10000,
+            maximumAge: 10000,
+            showLocationDialog: true,
+            forceRequestLocation: true,
+          }
+        );
       },
       {
         enableHighAccuracy: true,
-        timeout: 15000,
+        timeout: 8000,
         maximumAge: 5000,
+        showLocationDialog: true,
+        forceRequestLocation: true,
       }
     );
 
@@ -129,6 +147,8 @@ export class LocationService {
         fastestInterval: 500,
         showsBackgroundLocationIndicator: true,
         useSignificantChanges: false,
+        showLocationDialog: true,
+        forceRequestLocation: true,
       }
     );
   }

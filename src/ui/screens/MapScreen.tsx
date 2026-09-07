@@ -45,40 +45,11 @@ export interface PeerTelemetry {
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-// Tactical Dark Cartographic Tile Style (Fast, free OpenStreetMap tiles with high-contrast night theme)
-const TACTICAL_MAP_STYLE = {
-  version: 8,
-  name: 'KonvoyTacticalDark',
-  sources: {
-    cartoDark: {
-      type: 'raster',
-      tiles: [
-        'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
-        'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
-        'https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
-      ],
-      tileSize: 256,
-      maxzoom: 19,
-      attribution: '&copy; CARTO &copy; OpenStreetMap contributors',
-    },
-  },
-  layers: [
-    {
-      id: 'background',
-      type: 'background',
-      paint: {
-        'background-color': '#080C10',
-      },
-    },
-    {
-      id: 'carto-tiles',
-      type: 'raster',
-      source: 'cartoDark',
-      minzoom: 0,
-      maxzoom: 19,
-    },
-  ],
-};
+// Real Open Vector Map Styles (OpenFreeMap & MapLibre - free, unmetered, no tokens required)
+export const MAP_STYLES = {
+  DARK: 'https://tiles.openfreemap.org/styles/dark',
+  BRIGHT: 'https://tiles.openfreemap.org/styles/bright',
+} as const;
 
 function toHex(bytes: Uint8Array): string {
   let hex = '';
@@ -145,10 +116,12 @@ export const MapScreen: React.FC<MapScreenProps> = ({
   activeRadioType = 'SEARCHING',
 }) => {
   const [viewMode, setViewMode] = useState<'MAP' | 'RADAR'>('MAP');
+  const [selectedStyle, setSelectedStyle] = useState<'DARK' | 'BRIGHT'>('DARK');
   const [selectedHazard, setSelectedHazard] = useState<HazardEntry | null>(null);
   const [dropHazardModalVisible, setDropHazardModalVisible] = useState(false);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const cameraRef = useRef<any>(null);
+  const hadGpsFixRef = useRef(false);
 
   const hasGpsFix = isGpsLocked || (currentLatitude !== 0 && currentLongitude !== 0);
 
@@ -172,13 +145,22 @@ export const MapScreen: React.FC<MapScreenProps> = ({
     return () => pulse.stop();
   }, [pulseAnim]);
 
-  // Follow rider coordinates when updated
+  // Follow rider coordinates when updated, fly on initial fix
   useEffect(() => {
     if (hasGpsFix && cameraRef.current) {
-      cameraRef.current.easeTo({
-        center: [currentLongitude, currentLatitude],
-        duration: 500,
-      });
+      if (!hadGpsFixRef.current) {
+        hadGpsFixRef.current = true;
+        cameraRef.current.flyTo({
+          center: [currentLongitude, currentLatitude],
+          zoom: 15,
+          duration: 1200,
+        });
+      } else {
+        cameraRef.current.easeTo({
+          center: [currentLongitude, currentLatitude],
+          duration: 500,
+        });
+      }
     }
   }, [hasGpsFix, currentLatitude, currentLongitude]);
 
@@ -348,9 +330,30 @@ export const MapScreen: React.FC<MapScreenProps> = ({
         </View>
 
         {viewMode === 'MAP' && (
-          <TouchableOpacity style={styles.recenterButton} onPress={handleRecenter}>
-            <Text style={styles.recenterText}>🎯 RECENTER</Text>
-          </TouchableOpacity>
+          <View style={styles.rightControlsRow}>
+            <View style={styles.styleToggleGroup}>
+              <TouchableOpacity
+                style={[styles.styleButton, selectedStyle === 'DARK' && styles.styleButtonActive]}
+                onPress={() => setSelectedStyle('DARK')}
+              >
+                <Text style={[styles.styleButtonText, selectedStyle === 'DARK' && styles.styleButtonTextActive]}>
+                  🌑
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.styleButton, selectedStyle === 'BRIGHT' && styles.styleButtonActive]}
+                onPress={() => setSelectedStyle('BRIGHT')}
+              >
+                <Text style={[styles.styleButtonText, selectedStyle === 'BRIGHT' && styles.styleButtonTextActive]}>
+                  ☀️
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity style={styles.recenterButton} onPress={handleRecenter}>
+              <Text style={styles.recenterText}>🎯 RECENTER</Text>
+            </TouchableOpacity>
+          </View>
         )}
       </View>
 
@@ -359,7 +362,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({
         <View style={styles.mapContainer}>
           <Map
             style={styles.map}
-            mapStyle={TACTICAL_MAP_STYLE as any}
+            mapStyle={MAP_STYLES[selectedStyle]}
           >
             <Camera
               ref={cameraRef}
@@ -807,9 +810,36 @@ const styles = StyleSheet.create({
   modeButtonTextActive: {
     color: Colors.textInverse,
   },
+  rightControlsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  styleToggleGroup: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(18, 24, 38, 0.9)',
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    padding: 2,
+    marginRight: 8,
+  },
+  styleButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: Radius.full,
+  },
+  styleButtonActive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  styleButtonText: {
+    fontSize: 12,
+  },
+  styleButtonTextActive: {
+    transform: [{ scale: 1.1 }],
+  },
   recenterButton: {
     backgroundColor: 'rgba(18, 24, 38, 0.9)',
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: Radius.full,
     borderWidth: 1,
