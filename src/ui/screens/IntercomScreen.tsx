@@ -171,7 +171,7 @@ export const IntercomScreen: React.FC<IntercomScreenProps> = ({
         <View style={styles.statusRow}>
           <View style={styles.channelBadge}>
             <Text style={styles.channelText}>
-              CHANNEL: {selectedChannel === 'ALL' ? 'CONVOY BROADCAST' : `${selectedChannel} RIDER`}
+              CHANNEL: {selectedChannel === 'ALL' ? 'ALL RIDERS' : `${selectedChannel} RIDER`}
             </Text>
           </View>
 
@@ -195,7 +195,7 @@ export const IntercomScreen: React.FC<IntercomScreenProps> = ({
                 intercomMode === IntercomMode.HandsFreeVAD && styles.vadTextActive,
               ]}
             >
-              {intercomMode === IntercomMode.HandsFreeVAD ? 'VOX AUTO-PTT' : 'MANUAL PTT'}
+              {intercomMode === IntercomMode.HandsFreeVAD ? 'HANDS-FREE (VOX)' : 'PUSH TO TALK'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -210,7 +210,7 @@ export const IntercomScreen: React.FC<IntercomScreenProps> = ({
           </View>
         ) : (
           <View style={styles.idleSpeakerBox}>
-            <Text style={styles.idleSpeakerText}>CHANNEL CLEAR • 16kHz OPUS WIDEBAND</Text>
+            <Text style={styles.idleSpeakerText}>CHANNEL CLEAR • READY TO TALK</Text>
           </View>
         )}
 
@@ -279,7 +279,7 @@ export const IntercomScreen: React.FC<IntercomScreenProps> = ({
               : 'HOLD TO TALK'}
           </Text>
           <Text style={styles.pttSubText}>
-            {isMicMuted ? 'Tap unmute below' : 'BLE / Wi-Fi Direct Mesh'}
+            {isMicMuted ? 'Tap unmute below' : 'Direct Rider Link'}
           </Text>
         </TouchableOpacity>
       </View>
@@ -305,14 +305,14 @@ export const IntercomScreen: React.FC<IntercomScreenProps> = ({
           }}
         >
           <Text style={styles.controlPillEmoji}>{isDeafened ? '🔕' : '🎧'}</Text>
-          <Text style={styles.controlPillText}>{isDeafened ? 'UNDEAFEN' : 'DEAFEN'}</Text>
+          <Text style={styles.controlPillText}>{isDeafened ? 'UNMUTE AUDIO' : 'MUTE AUDIO'}</Text>
         </TouchableOpacity>
       </View>
 
-      {/* ─── Convoy Mesh Roster ──────────────────────────────────────── */}
+      {/* ─── Convoy Rider Roster ─────────────────────────────────────── */}
       <View style={styles.rosterHeader}>
-        <Text style={styles.rosterTitle}>CONVOY MESH ROSTER ({peers.length + 1})</Text>
-        <Text style={styles.rosterSubtitle}>P2P ZERO-INFRASTRUCTURE</Text>
+        <Text style={styles.rosterTitle}>GROUP RIDERS ({peers.length + 1})</Text>
+        <Text style={styles.rosterSubtitle}>DIRECT OFF-GRID</Text>
       </View>
 
       <ScrollView style={styles.rosterList} contentContainerStyle={styles.rosterContent}>
@@ -323,12 +323,12 @@ export const IntercomScreen: React.FC<IntercomScreenProps> = ({
           </View>
           <View style={styles.peerInfo}>
             <View style={styles.peerNameRow}>
-              <Text style={styles.peerName}>You (Host Bike)</Text>
+              <Text style={styles.peerName}>You (Your Bike)</Text>
               <View style={[styles.roleBadge, { backgroundColor: Colors.primaryGlow }]}>
-                <Text style={[styles.roleText, { color: Colors.primary }]}>LOCAL</Text>
+                <Text style={[styles.roleText, { color: Colors.primary }]}>YOU</Text>
               </View>
             </View>
-            <Text style={styles.peerMeta}>Local Mic • Low-Latency Jitter Buffer (60ms)</Text>
+            <Text style={styles.peerMeta}>Your Headset & Microphone</Text>
           </View>
           <View style={styles.peerStatusColumn}>
             <Text style={styles.peerBattery}>🔋 98%</Text>
@@ -336,13 +336,13 @@ export const IntercomScreen: React.FC<IntercomScreenProps> = ({
           </View>
         </View>
 
-        {/* Remote Mesh Peers */}
+        {/* Remote Group Peers */}
         {peers.length === 0 ? (
           <View style={styles.emptyMeshCard}>
             <Text style={styles.emptyMeshEmoji}>📡</Text>
-            <Text style={styles.emptyMeshTitle}>NO RIDERS IN MESH RANGE</Text>
+            <Text style={styles.emptyMeshTitle}>LOOKING FOR NEARBY RIDERS</Text>
             <Text style={styles.emptyMeshSubtext}>
-              Broadcasting encrypted beacon on BLE & Wi-Fi Direct. When other Konvoy riders are in radio range, they connect automatically.
+              Searching for group members nearby. When riders come within range, they connect automatically.
             </Text>
           </View>
         ) : (
@@ -375,7 +375,7 @@ export const IntercomScreen: React.FC<IntercomScreenProps> = ({
                 </View>
 
                 <Text style={styles.peerMeta}>
-                  RSSI: {peer.rssi} dBm • {peer.transport.replace('_', ' ')}
+                  {peer.rssi >= -65 ? 'Strong Signal' : peer.rssi >= -80 ? 'Good Signal' : 'Weak Signal'} • Direct Link
                 </Text>
               </View>
 

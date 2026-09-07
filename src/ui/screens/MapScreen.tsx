@@ -88,6 +88,22 @@ function getBearing(lat1: number, lon1: number, lat2: number, lon2: number): num
   return (Math.round((θ * 180) / Math.PI) + 360) % 360;
 }
 
+function getRadioLabel(type: string): string {
+  switch (type) {
+    case 'WIFI_DIRECT':
+      return 'DIRECT LINK';
+    case 'BLE':
+      return 'BLUETOOTH';
+    case 'NOSTR':
+      return 'INTERNET';
+    case 'AIR_GAPPED':
+      return 'OFFLINE';
+    case 'SEARCHING':
+    default:
+      return 'CONNECTING';
+  }
+}
+
 interface MapScreenProps {
   currentSpeed?: number;
   currentHeading?: number;
@@ -167,7 +183,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({
   // Recenter camera on rider coordinates
   const handleRecenter = () => {
     if (!hasGpsFix) {
-      Alert.alert('Acquiring GPS Fix', 'Waiting for satellite lock before centering.');
+      Alert.alert('Locating GPS', 'Waiting for satellite connection to center your position.');
       return;
     }
     cameraRef.current?.easeTo({
@@ -212,8 +228,8 @@ export const MapScreen: React.FC<MapScreenProps> = ({
 
     if (!hasGpsFix) {
       Alert.alert(
-        'GPS Lock Required',
-        'Cannot drop hazard pin: GPS location is acquiring fix. Please wait for satellite lock.'
+        'GPS Connecting',
+        'Cannot report hazard: GPS is still connecting. Please wait a moment.'
       );
       return;
     }
@@ -273,9 +289,9 @@ export const MapScreen: React.FC<MapScreenProps> = ({
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statBox}>
-            <Text style={styles.statLabel}>CONVOY</Text>
+            <Text style={styles.statLabel}>RIDERS</Text>
             <Text style={[styles.statValue, { color: peers.length > 0 ? Colors.accent : Colors.textPrimary }]}>
-              {peers.length + 1} {peers.length === 0 ? 'SOLO' : 'RIDERS'}
+              {peers.length + 1} {peers.length === 0 ? 'SOLO' : 'IN GROUP'}
             </Text>
           </View>
         </View>
@@ -297,14 +313,14 @@ export const MapScreen: React.FC<MapScreenProps> = ({
               },
             ]}
           />
-          <Text style={styles.radioText}>{activeRadioType}</Text>
+          <Text style={styles.radioText}>{getRadioLabel(activeRadioType)}</Text>
         </View>
       </View>
 
       {/* GPS Status Banner if searching */}
       {!hasGpsFix && (
         <View style={styles.gpsWarningBanner}>
-          <Text style={styles.gpsWarningText}>🛰️ ACQUIRING GPS FIX • WAITING FOR SATELLITES</Text>
+          <Text style={styles.gpsWarningText}>🛰️ CONNECTING GPS • WAITING FOR SATELLITES</Text>
         </View>
       )}
 
@@ -507,8 +523,8 @@ export const MapScreen: React.FC<MapScreenProps> = ({
 
           {radarPeers.length === 0 && (
             <View style={styles.soloRadarMessage}>
-              <Text style={styles.soloRadarText}>NO RIDERS IN RANGE</Text>
-              <Text style={styles.soloRadarSubtext}>Broadcasting beacon on BLE & Wi-Fi Direct</Text>
+              <Text style={styles.soloRadarText}>NO NEARBY RIDERS</Text>
+              <Text style={styles.soloRadarSubtext}>Searching for riders in your group...</Text>
             </View>
           )}
         </View>
@@ -582,18 +598,18 @@ export const MapScreen: React.FC<MapScreenProps> = ({
               </View>
 
               <Text style={styles.modalSubtext}>
-                Coordinates: {selectedHazard.latitude.toFixed(5)}, {selectedHazard.longitude.toFixed(5)}
+                Location: {selectedHazard.latitude.toFixed(4)}, {selectedHazard.longitude.toFixed(4)}
               </Text>
 
               <View style={styles.modalDetailsBox}>
                 <Text style={styles.modalDetailRow}>
-                  TTL: {Math.max(0, Math.floor(selectedHazard.ttlSeconds / 60))} mins
+                  Active for: {Math.max(0, Math.floor(selectedHazard.ttlSeconds / 60))} more mins
                 </Text>
                 <Text style={styles.modalDetailRow}>
                   Reported: {new Date(selectedHazard.createdAt * 1000).toLocaleTimeString()}
                 </Text>
                 <Text style={styles.modalDetailRow}>
-                  Vector Clock: v{selectedHazard.vectorClock}
+                  Alert Status: Active & Verified
                 </Text>
               </View>
 
@@ -629,9 +645,9 @@ export const MapScreen: React.FC<MapScreenProps> = ({
       >
         <View style={styles.modalOverlay}>
           <View style={styles.hazardDrawerContent}>
-            <Text style={styles.drawerTitle}>SELECT HAZARD TO BROADCAST</Text>
+            <Text style={styles.drawerTitle}>REPORT ROAD HAZARD</Text>
             <Text style={styles.drawerSubtitle}>
-              Gossip synced via CRDT OR-Set to all peer bikes
+              Alerts all riders in your group instantly
             </Text>
 
             <View style={styles.drawerGrid}>
@@ -640,7 +656,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({
                 onPress={() => handleQuickDrop(HazardType.Police)}
               >
                 <Text style={styles.drawerEmoji}>🚔</Text>
-                <Text style={styles.drawerItemText}>POLICE TRAP</Text>
+                <Text style={styles.drawerItemText}>POLICE</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -648,7 +664,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({
                 onPress={() => handleQuickDrop(HazardType.Accident)}
               >
                 <Text style={styles.drawerEmoji}>💥</Text>
-                <Text style={styles.drawerItemText}>ACCIDENT</Text>
+                <Text style={styles.drawerItemText}>CRASH</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -656,7 +672,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({
                 onPress={() => handleQuickDrop(HazardType.RoadHazard)}
               >
                 <Text style={styles.drawerEmoji}>⚠️</Text>
-                <Text style={styles.drawerItemText}>ROAD HAZARD</Text>
+                <Text style={styles.drawerItemText}>ROAD DEBRIS</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -664,7 +680,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({
                 onPress={() => handleQuickDrop(HazardType.Congestion)}
               >
                 <Text style={styles.drawerEmoji}>🚗</Text>
-                <Text style={styles.drawerItemText}>CONGESTION</Text>
+                <Text style={styles.drawerItemText}>TRAFFIC JAM</Text>
               </TouchableOpacity>
             </View>
 

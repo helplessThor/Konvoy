@@ -65,7 +65,7 @@ class KonvoyForegroundService : Service() {
     private fun startMeshService() {
         val notification = buildNotification(
             title = "Konvoy Active",
-            body = "Mesh radio and intercom running"
+            body = "Group ride tracking & intercom ready"
         )
 
         // Start with both MICROPHONE and LOCATION foreground service types
@@ -144,10 +144,10 @@ class KonvoyForegroundService : Service() {
     private fun createNotificationChannel() {
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "Konvoy Mesh Service",
+            "Konvoy Ride Service",
             NotificationManager.IMPORTANCE_LOW
         ).apply {
-            description = "Maintains mesh radio and intercom connectivity"
+            description = "Maintains group intercom and live ride tracking"
             setShowBadge(false)
         }
 

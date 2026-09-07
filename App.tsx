@@ -209,7 +209,7 @@ export default function App(): React.JSX.Element {
           <Text
             style={[styles.tabLabel, currentTab === 'MAP' && styles.tabLabelActive]}
           >
-            TACTICAL MAP
+            MAP
           </Text>
         </TouchableOpacity>
 
