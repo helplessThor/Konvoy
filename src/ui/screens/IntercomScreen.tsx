@@ -49,39 +49,8 @@ export const IntercomScreen: React.FC<IntercomScreenProps> = ({
   activeSpeakerName = null,
   intercomMode = IntercomMode.PushToTalk,
   onModeChange,
-  currentAudioLevel = 0.45,
-  peers = [
-    {
-      peerId: 'peer-lead',
-      callsign: 'Apex Leader',
-      role: 'LEAD',
-      batteryPercent: 88,
-      rssi: -58,
-      isSpeaking: false,
-      isMuted: false,
-      transport: 'WIFI_P2P',
-    },
-    {
-      peerId: 'peer-tail',
-      callsign: 'Tail Sweeper',
-      role: 'TAIL',
-      batteryPercent: 72,
-      rssi: -74,
-      isSpeaking: false,
-      isMuted: false,
-      transport: 'BLE',
-    },
-    {
-      peerId: 'peer-3',
-      callsign: 'Rider Ghost',
-      role: 'MEMBER',
-      batteryPercent: 94,
-      rssi: -62,
-      isSpeaking: false,
-      isMuted: true,
-      transport: 'WIFI_P2P',
-    },
-  ],
+  currentAudioLevel = 0,
+  peers = [],
 }) => {
   const [selectedChannel, setSelectedChannel] = useState<'ALL' | 'LEAD' | 'TAIL'>('ALL');
   const [isMicMuted, setIsMicMuted] = useState(false);
@@ -130,7 +99,8 @@ export const IntercomScreen: React.FC<IntercomScreenProps> = ({
     let mounted = true;
     const interval = setInterval(() => {
       if (!mounted || !Animated?.timing) return;
-      if (isTransmitting || isHoldingPTT || activeSpeakerName) {
+      const isAudioActive = isTransmitting || isHoldingPTT || !!activeSpeakerName || currentAudioLevel > 0.05;
+      if (isAudioActive) {
         vuMeterBars.forEach((bar) => {
           if (mounted && Animated?.timing) {
             Animated.timing(bar, {
@@ -144,7 +114,7 @@ export const IntercomScreen: React.FC<IntercomScreenProps> = ({
         vuMeterBars.forEach((bar) => {
           if (mounted && Animated?.timing) {
             Animated.timing(bar, {
-              toValue: 0.1,
+              toValue: 0.05,
               duration: 150,
               useNativeDriver: false,
             }).start();
@@ -367,52 +337,62 @@ export const IntercomScreen: React.FC<IntercomScreenProps> = ({
         </View>
 
         {/* Remote Mesh Peers */}
-        {peers.map((peer) => (
-          <View key={peer.peerId} style={styles.peerCard}>
-            <View
-              style={[
-                styles.peerAvatar,
-                peer.isSpeaking && { borderColor: Colors.accent, borderWidth: 2 },
-              ]}
-            >
-              <Text style={styles.avatarText}>
-                {peer.callsign.substring(0, 2).toUpperCase()}
-              </Text>
-            </View>
-
-            <View style={styles.peerInfo}>
-              <View style={styles.peerNameRow}>
-                <Text style={styles.peerName}>{peer.callsign}</Text>
-                <View
-                  style={[
-                    styles.roleBadge,
-                    { backgroundColor: `${getRoleColor(peer.role)}22` },
-                  ]}
-                >
-                  <Text style={[styles.roleText, { color: getRoleColor(peer.role) }]}>
-                    {peer.role}
-                  </Text>
-                </View>
-              </View>
-
-              <Text style={styles.peerMeta}>
-                RSSI: {peer.rssi} dBm • {peer.transport.replace('_', ' ')}
-              </Text>
-            </View>
-
-            <View style={styles.peerStatusColumn}>
-              <Text style={styles.peerBattery}>🔋 {peer.batteryPercent}%</Text>
-              <Text
+        {peers.length === 0 ? (
+          <View style={styles.emptyMeshCard}>
+            <Text style={styles.emptyMeshEmoji}>📡</Text>
+            <Text style={styles.emptyMeshTitle}>NO RIDERS IN MESH RANGE</Text>
+            <Text style={styles.emptyMeshSubtext}>
+              Broadcasting encrypted beacon on BLE & Wi-Fi Direct. When other Konvoy riders are in radio range, they connect automatically.
+            </Text>
+          </View>
+        ) : (
+          peers.map((peer) => (
+            <View key={peer.peerId} style={styles.peerCard}>
+              <View
                 style={[
-                  styles.peerLinkText,
-                  { color: peer.isSpeaking ? Colors.accent : Colors.textSecondary },
+                  styles.peerAvatar,
+                  peer.isSpeaking && { borderColor: Colors.accent, borderWidth: 2 },
                 ]}
               >
-                {peer.isSpeaking ? 'TALKING' : peer.isMuted ? 'MUTED' : 'ONLINE'}
-              </Text>
+                <Text style={styles.avatarText}>
+                  {peer.callsign.substring(0, 2).toUpperCase()}
+                </Text>
+              </View>
+
+              <View style={styles.peerInfo}>
+                <View style={styles.peerNameRow}>
+                  <Text style={styles.peerName}>{peer.callsign}</Text>
+                  <View
+                    style={[
+                      styles.roleBadge,
+                      { backgroundColor: `${getRoleColor(peer.role)}22` },
+                    ]}
+                  >
+                    <Text style={[styles.roleText, { color: getRoleColor(peer.role) }]}>
+                      {peer.role}
+                    </Text>
+                  </View>
+                </View>
+
+                <Text style={styles.peerMeta}>
+                  RSSI: {peer.rssi} dBm • {peer.transport.replace('_', ' ')}
+                </Text>
+              </View>
+
+              <View style={styles.peerStatusColumn}>
+                <Text style={styles.peerBattery}>🔋 {peer.batteryPercent}%</Text>
+                <Text
+                  style={[
+                    styles.peerLinkText,
+                    { color: peer.isSpeaking ? Colors.accent : Colors.textSecondary },
+                  ]}
+                >
+                  {peer.isSpeaking ? 'TALKING' : peer.isMuted ? 'MUTED' : 'ONLINE'}
+                </Text>
+              </View>
             </View>
-          </View>
-        ))}
+          ))
+        )}
       </ScrollView>
     </View>
   );
@@ -711,6 +691,32 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontFamily: Typography.fontFamily.bold,
     marginTop: 2,
+  },
+  emptyMeshCard: {
+    backgroundColor: Colors.surfaceElevated,
+    borderRadius: Radius.md,
+    padding: Spacing.xl,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    marginTop: Spacing.sm,
+  },
+  emptyMeshEmoji: {
+    fontSize: 32,
+    marginBottom: Spacing.sm,
+  },
+  emptyMeshTitle: {
+    fontSize: Typography.size.sm,
+    fontFamily: Typography.fontFamily.bold,
+    color: Colors.textPrimary,
+    letterSpacing: 1,
+    marginBottom: 6,
+  },
+  emptyMeshSubtext: {
+    fontSize: Typography.size.xs,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 18,
   },
 });
 

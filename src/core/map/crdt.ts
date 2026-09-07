@@ -278,6 +278,7 @@ export class HazardCRDT {
   startGC(): void {
     if (this.gcTimer) return;
     this.gcTimer = setInterval(() => this.gc(), HazardCRDT.GC_INTERVAL_MS);
+    (this.gcTimer as any)?.unref?.();
   }
 
   /**
@@ -350,6 +351,14 @@ export class HazardCRDT {
   }
 
   /**
+   * Clear all entries and reset clock.
+   */
+  clear(): void {
+    this.entries.clear();
+    this.localClock = 0;
+  }
+
+  /**
    * Destroy — clean up timers.
    */
   destroy(): void {
@@ -357,3 +366,83 @@ export class HazardCRDT {
     this.entries.clear();
   }
 }
+
+export function createHazardEntry(
+  type: HazardType,
+  lat: number,
+  lon: number,
+  senderFingerprint: Uint8Array,
+  ttlSeconds: number = HazardCRDT.DEFAULT_TTL,
+): HazardEntry {
+  const pinId = new Uint8Array(8);
+  const now = Math.floor(Date.now() / 1000);
+  const view = new DataView(pinId.buffer);
+  view.setUint32(0, now, false);
+  view.setUint8(4, type);
+  if (senderFingerprint.length >= 3) {
+    pinId[5] = senderFingerprint[0]!;
+    pinId[6] = senderFingerprint[1]!;
+    pinId[7] = senderFingerprint[2]!;
+  }
+
+  return {
+    pinId,
+    type,
+    latitude: lat,
+    longitude: lon,
+    createdAt: now,
+    ttlSeconds,
+    senderFingerprint,
+    tombstoned: false,
+    vectorClock: 1,
+  };
+}
+
+// ─── Reactive Hazard Store for UI ────────────────────────────────────────
+
+import { create } from 'zustand';
+
+export const globalHazardCRDT = new HazardCRDT();
+
+export interface HazardStoreState {
+  hazards: HazardEntry[];
+  addHazard: (
+    type: HazardType,
+    lat: number,
+    lon: number,
+    senderFingerprint: Uint8Array,
+    ttlSeconds?: number,
+  ) => HazardEntry;
+  removeHazard: (pinId: Uint8Array) => boolean;
+  clearAll: () => void;
+  refreshFromCRDT: () => void;
+}
+
+export const useHazardStore = create<HazardStoreState>((set) => ({
+  hazards: globalHazardCRDT.getActive(),
+
+  addHazard: (type, lat, lon, senderFingerprint, ttlSeconds) => {
+    const entry = createHazardEntry(type, lat, lon, senderFingerprint, ttlSeconds);
+    globalHazardCRDT.add(entry);
+    set({ hazards: globalHazardCRDT.getActive() });
+    return entry;
+  },
+
+  removeHazard: (pinId) => {
+    const removed = globalHazardCRDT.remove(pinId);
+    if (removed) {
+      set({ hazards: globalHazardCRDT.getActive() });
+    }
+    return removed;
+  },
+
+  clearAll: () => {
+    globalHazardCRDT.clear();
+    set({ hazards: [] });
+  },
+
+  refreshFromCRDT: () => {
+    set({ hazards: globalHazardCRDT.getActive() });
+  },
+}));
+

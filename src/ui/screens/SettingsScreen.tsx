@@ -25,7 +25,7 @@ interface SettingsScreenProps {
 }
 
 export const SettingsScreen: React.FC<SettingsScreenProps> = ({
-  sessionFingerprint = 'e8b4...9f2a (Ed25519)',
+  sessionFingerprint = 'Initializing...',
   onBurnIdentity,
   onClearCRDTCache,
 }) => {

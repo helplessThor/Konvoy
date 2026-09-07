@@ -1,17 +1,18 @@
 /**
  * MapScreen.tsx — Live Convoy Map & Hazard Gossip HUD
  *
- * Designed for glove-friendly motorcycle cockpit operation with high-contrast,
- * sunlight-readable typography and large touch targets (≥48dp).
+ * High-contrast, sunlight-readable tactical display designed for
+ * motorcycle cockpit mounting.
  *
- * Displays:
- *   - Convoy telemetry (speed, heading, altitude, peer markers with vector trails)
- *   - CRDT OR-Set hazard pins (Police, Accident, Road Hazard, Congestion)
- *   - Quick 1-tap Hazard Drop buttons (Police, Accident, Hazard, Debris)
- *   - Mesh radio status & relay fallback indicators
+ * Real Data Integration:
+ *   - Real MapLibre cartographic map with dark mode tactical tiles
+ *   - Live GPS telemetry (speed, heading, altitude, coordinates)
+ *   - Real discovered peer riders in mesh range (zero mock riders)
+ *   - CRDT OR-Set synchronized hazard pins dropped at actual GPS location
+ *   - Seamless toggle between Cartographic Map & Tactical Radar view
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -19,15 +20,17 @@ import {
   TouchableOpacity,
   Dimensions,
   Modal,
-  ScrollView,
   Animated,
+  Alert,
 } from 'react-native';
+import { Map, Camera, Marker } from '@maplibre/maplibre-react-native';
 import { Colors, Typography, Spacing, TouchTargets, Radius, Shadows } from '../theme/tokens';
 import { HazardType } from '../../core/net/wire';
 import type { HazardEntry } from '../../core/map/crdt';
 
 export interface PeerTelemetry {
   fingerprint: Uint8Array;
+  fingerprintHex?: string;
   latitude: number;
   longitude: number;
   heading: number;
@@ -42,78 +45,112 @@ export interface PeerTelemetry {
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
+// Tactical Dark Cartographic Tile Style (Fast, free OpenStreetMap tiles with high-contrast night theme)
+const TACTICAL_MAP_STYLE = {
+  version: 8,
+  name: 'KonvoyTacticalDark',
+  sources: {
+    cartoDark: {
+      type: 'raster',
+      tiles: [
+        'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
+        'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
+        'https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
+      ],
+      tileSize: 256,
+      maxzoom: 19,
+      attribution: '&copy; CARTO &copy; OpenStreetMap contributors',
+    },
+  },
+  layers: [
+    {
+      id: 'background',
+      type: 'background',
+      paint: {
+        'background-color': '#080C10',
+      },
+    },
+    {
+      id: 'carto-tiles',
+      type: 'raster',
+      source: 'cartoDark',
+      minzoom: 0,
+      maxzoom: 19,
+    },
+  ],
+};
+
+function toHex(bytes: Uint8Array): string {
+  let hex = '';
+  for (let i = 0; i < bytes.length; i++) {
+    hex += bytes[i]!.toString(16).padStart(2, '0');
+  }
+  return hex;
+}
+
+function getCompassHeading(degrees: number): string {
+  const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  const index = Math.round(((degrees %= 360) < 0 ? degrees + 360 : degrees) / 45) % 8;
+  return directions[index] ?? 'N';
+}
+
+// Haversine distance in meters
+function getDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371000;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return Math.round(R * c);
+}
+
+// Bearing in degrees from lat1,lon1 to lat2,lon2
+function getBearing(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const φ1 = (lat1 * Math.PI) / 180;
+  const φ2 = (lat2 * Math.PI) / 180;
+  const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+  const y = Math.sin(Δλ) * Math.cos(φ2);
+  const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+  const θ = Math.atan2(y, x);
+  return (Math.round((θ * 180) / Math.PI) + 360) % 360;
+}
+
 interface MapScreenProps {
   currentSpeed?: number;
   currentHeading?: number;
   currentAltitude?: number;
+  currentLatitude?: number;
+  currentLongitude?: number;
+  isGpsLocked?: boolean;
   peers?: PeerTelemetry[];
   hazards?: HazardEntry[];
   onAddHazard?: (type: HazardType, lat: number, lng: number) => void;
   onRemoveHazard?: (pinId: Uint8Array) => void;
-  activeRadioType?: 'BLE' | 'WIFI_DIRECT' | 'NOSTR' | 'AIR_GAPPED';
+  activeRadioType?: 'BLE' | 'WIFI_DIRECT' | 'NOSTR' | 'AIR_GAPPED' | 'SEARCHING';
 }
 
 export const MapScreen: React.FC<MapScreenProps> = ({
-  currentSpeed = 68,
-  currentHeading = 215,
-  currentAltitude = 340,
-  peers = [
-    {
-      fingerprint: new Uint8Array([1, 2, 3, 4]),
-      latitude: 37.7749,
-      longitude: -122.4194,
-      heading: 210,
-      speed: 70,
-      altitude: 338,
-      lastSeen: Date.now(),
-      distanceMeters: 42,
-      isLead: true,
-      callsign: 'Lead (Ghost)',
-    },
-    {
-      fingerprint: new Uint8Array([5, 6, 7, 8]),
-      latitude: 37.7739,
-      longitude: -122.4204,
-      heading: 218,
-      speed: 66,
-      altitude: 341,
-      lastSeen: Date.now(),
-      distanceMeters: 85,
-      isSweeper: true,
-      callsign: 'Tail (Viper)',
-    },
-  ],
-  hazards = [
-    {
-      pinId: new Uint8Array([0xAA, 0x01]),
-      type: HazardType.Police,
-      latitude: 37.776,
-      longitude: -122.418,
-      createdAt: Math.floor(Date.now() / 1000) - 120,
-      ttlSeconds: 7200,
-      senderFingerprint: new Uint8Array(16),
-      tombstoned: false,
-      vectorClock: 1,
-    },
-    {
-      pinId: new Uint8Array([0xBB, 0x02]),
-      type: HazardType.RoadHazard,
-      latitude: 37.772,
-      longitude: -122.421,
-      createdAt: Math.floor(Date.now() / 1000) - 300,
-      ttlSeconds: 3600,
-      senderFingerprint: new Uint8Array(16),
-      tombstoned: false,
-      vectorClock: 2,
-    },
-  ],
+  currentSpeed = 0,
+  currentHeading = 0,
+  currentAltitude = 0,
+  currentLatitude = 0,
+  currentLongitude = 0,
+  isGpsLocked = false,
+  peers = [],
+  hazards = [],
   onAddHazard,
   onRemoveHazard,
-  activeRadioType = 'WIFI_DIRECT',
+  activeRadioType = 'SEARCHING',
 }) => {
+  const [viewMode, setViewMode] = useState<'MAP' | 'RADAR'>('MAP');
   const [selectedHazard, setSelectedHazard] = useState<HazardEntry | null>(null);
   const [dropHazardModalVisible, setDropHazardModalVisible] = useState(false);
   const pulseAnim = useRef(new Animated.Value(1)).current;
+  const cameraRef = useRef<any>(null);
+
+  const hasGpsFix = isGpsLocked || (currentLatitude !== 0 && currentLongitude !== 0);
 
   // Pulse animation for own position marker
   useEffect(() => {
@@ -134,6 +171,29 @@ export const MapScreen: React.FC<MapScreenProps> = ({
     pulse.start();
     return () => pulse.stop();
   }, [pulseAnim]);
+
+  // Follow rider coordinates when updated
+  useEffect(() => {
+    if (hasGpsFix && cameraRef.current) {
+      cameraRef.current.easeTo({
+        center: [currentLongitude, currentLatitude],
+        duration: 500,
+      });
+    }
+  }, [hasGpsFix, currentLatitude, currentLongitude]);
+
+  // Recenter camera on rider coordinates
+  const handleRecenter = () => {
+    if (!hasGpsFix) {
+      Alert.alert('Acquiring GPS Fix', 'Waiting for satellite lock before centering.');
+      return;
+    }
+    cameraRef.current?.easeTo({
+      center: [currentLongitude, currentLatitude],
+      zoom: 15,
+      duration: 600,
+    });
+  };
 
   const getHazardBadgeColor = (type: HazardType): string => {
     switch (type) {
@@ -167,8 +227,46 @@ export const MapScreen: React.FC<MapScreenProps> = ({
 
   const handleQuickDrop = (type: HazardType) => {
     setDropHazardModalVisible(false);
-    onAddHazard?.(type, 37.7749, -122.4194);
+
+    if (!hasGpsFix) {
+      Alert.alert(
+        'GPS Lock Required',
+        'Cannot drop hazard pin: GPS location is acquiring fix. Please wait for satellite lock.'
+      );
+      return;
+    }
+
+    onAddHazard?.(type, currentLatitude, currentLongitude);
   };
+
+  // Compute relative radar positions for real peers
+  const radarPeers = useMemo(() => {
+    if (!hasGpsFix) return [];
+    return peers.map((p) => {
+      const dist = getDistanceMeters(currentLatitude, currentLongitude, p.latitude, p.longitude);
+      const bearing = getBearing(currentLatitude, currentLongitude, p.latitude, p.longitude);
+      const relAngle = ((bearing - currentHeading + 360) % 360) * (Math.PI / 180);
+      // Scale: 100m = 140px radius
+      const r = Math.min(150, (dist / 100) * 140);
+      const x = r * Math.sin(relAngle);
+      const y = -r * Math.cos(relAngle);
+      return { ...p, dist, x, y };
+    });
+  }, [hasGpsFix, currentLatitude, currentLongitude, currentHeading, peers]);
+
+  // Compute relative radar positions for real hazards
+  const radarHazards = useMemo(() => {
+    if (!hasGpsFix) return [];
+    return hazards.map((h) => {
+      const dist = getDistanceMeters(currentLatitude, currentLongitude, h.latitude, h.longitude);
+      const bearing = getBearing(currentLatitude, currentLongitude, h.latitude, h.longitude);
+      const relAngle = ((bearing - currentHeading + 360) % 360) * (Math.PI / 180);
+      const r = Math.min(150, (dist / 100) * 140);
+      const x = r * Math.sin(relAngle);
+      const y = -r * Math.cos(relAngle);
+      return { ...h, dist, x, y };
+    });
+  }, [hasGpsFix, currentLatitude, currentLongitude, currentHeading, hazards]);
 
   return (
     <View style={styles.container}>
@@ -182,7 +280,9 @@ export const MapScreen: React.FC<MapScreenProps> = ({
         <View style={styles.telemetryStats}>
           <View style={styles.statBox}>
             <Text style={styles.statLabel}>HEADING</Text>
-            <Text style={styles.statValue}>{Math.round(currentHeading)}° SW</Text>
+            <Text style={styles.statValue}>
+              {Math.round(currentHeading)}° {getCompassHeading(currentHeading)}
+            </Text>
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statBox}>
@@ -191,9 +291,9 @@ export const MapScreen: React.FC<MapScreenProps> = ({
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statBox}>
-            <Text style={styles.statLabel}>MESH CONVOY</Text>
-            <Text style={[styles.statValue, { color: Colors.accent }]}>
-              {peers.length + 1} RIDERS
+            <Text style={styles.statLabel}>CONVOY</Text>
+            <Text style={[styles.statValue, { color: peers.length > 0 ? Colors.accent : Colors.textPrimary }]}>
+              {peers.length + 1} {peers.length === 0 ? 'SOLO' : 'RIDERS'}
             </Text>
           </View>
         </View>
@@ -209,6 +309,8 @@ export const MapScreen: React.FC<MapScreenProps> = ({
                     ? Colors.success
                     : activeRadioType === 'BLE'
                     ? Colors.accent
+                    : activeRadioType === 'NOSTR'
+                    ? Colors.primary
                     : Colors.warning,
               },
             ]}
@@ -217,83 +319,197 @@ export const MapScreen: React.FC<MapScreenProps> = ({
         </View>
       </View>
 
-      {/* ─── Radar / Map Canvas Area ───────────────────────────────────── */}
-      <View style={styles.radarContainer}>
-        {/* Concentric distance rings */}
-        <View style={[styles.radarRing, { width: 120, height: 120, borderRadius: 60 }]} />
-        <View style={[styles.radarRing, { width: 220, height: 220, borderRadius: 110 }]} />
-        <View style={[styles.radarRing, { width: 320, height: 320, borderRadius: 160 }]} />
+      {/* GPS Status Banner if searching */}
+      {!hasGpsFix && (
+        <View style={styles.gpsWarningBanner}>
+          <Text style={styles.gpsWarningText}>🛰️ ACQUIRING GPS FIX • WAITING FOR SATELLITES</Text>
+        </View>
+      )}
 
-        {/* Range text */}
-        <Text style={styles.radarRangeText}>100m Range</Text>
-
-        {/* Own bike marker (center) */}
-        <View style={styles.centerMarkerContainer}>
-          <Animated.View
-            style={[
-              styles.ownPulseRing,
-              {
-                transform: [{ scale: pulseAnim }],
-              },
-            ]}
-          />
-          <View style={[styles.ownRiderMarker, { transform: [{ rotate: `${currentHeading}deg` }] }]}>
-            <View style={styles.riderArrow} />
-          </View>
-          <Text style={styles.ownLabel}>YOU</Text>
+      {/* View Switcher & Recenter Floating Controls */}
+      <View style={styles.viewControlsRow}>
+        <View style={styles.modeToggleGroup}>
+          <TouchableOpacity
+            style={[styles.modeButton, viewMode === 'MAP' && styles.modeButtonActive]}
+            onPress={() => setViewMode('MAP')}
+          >
+            <Text style={[styles.modeButtonText, viewMode === 'MAP' && styles.modeButtonTextActive]}>
+              🗺️ MAP
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.modeButton, viewMode === 'RADAR' && styles.modeButtonActive]}
+            onPress={() => setViewMode('RADAR')}
+          >
+            <Text style={[styles.modeButtonText, viewMode === 'RADAR' && styles.modeButtonTextActive]}>
+              🎯 RADAR
+            </Text>
+          </TouchableOpacity>
         </View>
 
-        {/* Peer Convoy Markers */}
-        {peers.map((peer, idx) => {
-          // Offsets simulated on 2D tactical radar display
-          const topOffset = idx === 0 ? -70 : 85;
-          const leftOffset = idx === 0 ? 30 : -45;
+        {viewMode === 'MAP' && (
+          <TouchableOpacity style={styles.recenterButton} onPress={handleRecenter}>
+            <Text style={styles.recenterText}>🎯 RECENTER</Text>
+          </TouchableOpacity>
+        )}
+      </View>
 
-          return (
+      {/* ─── Map / Radar Area ─────────────────────────────────────────── */}
+      {viewMode === 'MAP' ? (
+        <View style={styles.mapContainer}>
+          <Map
+            style={styles.map}
+            mapStyle={TACTICAL_MAP_STYLE as any}
+          >
+            <Camera
+              ref={cameraRef}
+              initialViewState={{
+                center: hasGpsFix ? [currentLongitude, currentLatitude] : [0, 0],
+                zoom: hasGpsFix ? 15 : 2,
+              }}
+            />
+
+            {/* Own Live Rider Marker */}
+            {hasGpsFix && (
+              <Marker
+                id="own-rider-marker"
+                lngLat={[currentLongitude, currentLatitude]}
+                anchor="center"
+              >
+                <View style={styles.mapOwnMarkerWrapper}>
+                  <Animated.View
+                    style={[
+                      styles.ownPulseRing,
+                      { transform: [{ scale: pulseAnim }] },
+                    ]}
+                  />
+                  <View style={[styles.ownRiderMarker, { transform: [{ rotate: `${currentHeading}deg` }] }]}>
+                    <View style={styles.riderArrow} />
+                  </View>
+                </View>
+              </Marker>
+            )}
+
+            {/* Discovered Real Peer Markers */}
+            {peers.map((peer, idx) => {
+              const fpHex = peer.fingerprintHex || toHex(peer.fingerprint);
+              return (
+                <Marker
+                  key={`map-peer-${fpHex}-${idx}`}
+                  id={`peer-${fpHex}`}
+                  lngLat={[peer.longitude, peer.latitude]}
+                  anchor="center"
+                >
+                  <View style={styles.mapPeerWrapper}>
+                    <View style={[styles.peerMarker, { transform: [{ rotate: `${peer.heading}deg` }] }]}>
+                      <View style={styles.peerArrow} />
+                    </View>
+                    <View style={styles.peerBadge}>
+                      <Text style={styles.peerCallsign}>
+                        {peer.callsign || fpHex.substring(0, 6)}
+                      </Text>
+                      <Text style={styles.peerSpeed}>{Math.round(peer.speed)} km/h</Text>
+                    </View>
+                  </View>
+                </Marker>
+              );
+            })}
+
+            {/* Real CRDT Hazard Pins */}
+            {hazards.map((hazard, idx) => {
+              const pinHex = toHex(hazard.pinId);
+              const color = getHazardBadgeColor(hazard.type);
+              return (
+                <Marker
+                  key={`map-hazard-${pinHex}-${idx}`}
+                  id={`hazard-${pinHex}`}
+                  lngLat={[hazard.longitude, hazard.latitude]}
+                  anchor="center"
+                  onPress={() => setSelectedHazard(hazard)}
+                >
+                  <View style={[styles.hazardMarker, { backgroundColor: color }]}>
+                    <Text style={styles.hazardIcon}>⚠️</Text>
+                  </View>
+                </Marker>
+              );
+            })}
+          </Map>
+        </View>
+      ) : (
+        /* ─── Tactical Radar HUD Area ─────────────────────────────────── */
+        <View style={styles.radarContainer}>
+          <View style={[styles.radarRing, { width: 100, height: 100, borderRadius: 50 }]} />
+          <View style={[styles.radarRing, { width: 200, height: 200, borderRadius: 100 }]} />
+          <View style={[styles.radarRing, { width: 280, height: 280, borderRadius: 140 }]} />
+
+          <Text style={styles.radarRangeText}>100m Range</Text>
+
+          {/* Own bike marker (center) */}
+          <View style={styles.centerMarkerContainer}>
+            <Animated.View
+              style={[
+                styles.ownPulseRing,
+                { transform: [{ scale: pulseAnim }] },
+              ]}
+            />
+            <View style={[styles.ownRiderMarker, { transform: [{ rotate: `${currentHeading}deg` }] }]}>
+              <View style={styles.riderArrow} />
+            </View>
+            <Text style={styles.ownLabel}>YOU</Text>
+          </View>
+
+          {/* Peer Convoy Markers on Radar (relative to your actual GPS position) */}
+          {radarPeers.map((peer, idx) => (
             <View
-              key={`peer-${idx}`}
+              key={`radar-peer-${idx}`}
               style={[
                 styles.peerMarkerContainer,
-                {
-                  transform: [{ translateX: leftOffset }, { translateY: topOffset }],
-                },
+                { transform: [{ translateX: peer.x }, { translateY: peer.y }] },
               ]}
             >
               <View style={[styles.peerMarker, { transform: [{ rotate: `${peer.heading}deg` }] }]}>
                 <View style={styles.peerArrow} />
               </View>
               <View style={styles.peerBadge}>
-                <Text style={styles.peerCallsign}>{peer.callsign || `Rider ${idx + 1}`}</Text>
-                <Text style={styles.peerSpeed}>{Math.round(peer.speed)} km/h • {peer.distanceMeters}m</Text>
+                <Text style={styles.peerCallsign}>
+                  {peer.callsign || `Rider ${idx + 1}`}
+                </Text>
+                <Text style={styles.peerSpeed}>
+                  {Math.round(peer.speed)} km/h • {peer.dist}m
+                </Text>
               </View>
             </View>
-          );
-        })}
+          ))}
 
-        {/* Hazard Pins on Radar */}
-        {hazards.map((hazard, idx) => {
-          const topOffset = idx === 0 ? -110 : 50;
-          const leftOffset = idx === 0 ? -80 : 90;
-          const color = getHazardBadgeColor(hazard.type);
+          {/* Real Hazards on Radar */}
+          {radarHazards.map((hazard, idx) => {
+            const color = getHazardBadgeColor(hazard.type);
+            return (
+              <TouchableOpacity
+                key={`radar-hazard-${idx}`}
+                style={[
+                  styles.hazardMarker,
+                  {
+                    backgroundColor: color,
+                    transform: [{ translateX: hazard.x }, { translateY: hazard.y }],
+                  },
+                ]}
+                onPress={() => setSelectedHazard(hazard)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.hazardIcon}>⚠️</Text>
+              </TouchableOpacity>
+            );
+          })}
 
-          return (
-            <TouchableOpacity
-              key={`hazard-${idx}`}
-              style={[
-                styles.hazardMarker,
-                {
-                  backgroundColor: color,
-                  transform: [{ translateX: leftOffset }, { translateY: topOffset }],
-                },
-              ]}
-              onPress={() => setSelectedHazard(hazard)}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.hazardIcon}>⚠️</Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
+          {radarPeers.length === 0 && (
+            <View style={styles.soloRadarMessage}>
+              <Text style={styles.soloRadarText}>NO RIDERS IN RANGE</Text>
+              <Text style={styles.soloRadarSubtext}>Broadcasting beacon on BLE & Wi-Fi Direct</Text>
+            </View>
+          )}
+        </View>
+      )}
 
       {/* ─── Bottom HUD & Quick Action Bar ────────────────────────────── */}
       <View style={styles.bottomBar}>
@@ -328,7 +544,15 @@ export const MapScreen: React.FC<MapScreenProps> = ({
             onPress={() => handleQuickDrop(HazardType.RoadHazard)}
           >
             <Text style={styles.quickEmoji}>🛢️</Text>
-            <Text style={styles.quickText}>OIL / ROAD</Text>
+            <Text style={styles.quickText}>ROAD</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.quickTile, { borderColor: Colors.hazardCongestion }]}
+            onPress={() => handleQuickDrop(HazardType.Congestion)}
+          >
+            <Text style={styles.quickEmoji}>🚗</Text>
+            <Text style={styles.quickText}>TRAFFIC</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -355,12 +579,15 @@ export const MapScreen: React.FC<MapScreenProps> = ({
               </View>
 
               <Text style={styles.modalSubtext}>
-                Reported by Mesh Peer • Synchronized via CRDT OR-Set
+                Coordinates: {selectedHazard.latitude.toFixed(5)}, {selectedHazard.longitude.toFixed(5)}
               </Text>
 
               <View style={styles.modalDetailsBox}>
                 <Text style={styles.modalDetailRow}>
-                  TTL Remaining: {Math.max(0, Math.floor(selectedHazard.ttlSeconds / 60))} mins
+                  TTL: {Math.max(0, Math.floor(selectedHazard.ttlSeconds / 60))} mins
+                </Text>
+                <Text style={styles.modalDetailRow}>
+                  Reported: {new Date(selectedHazard.createdAt * 1000).toLocaleTimeString()}
                 </Text>
                 <Text style={styles.modalDetailRow}>
                   Vector Clock: v{selectedHazard.vectorClock}
@@ -401,7 +628,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({
           <View style={styles.hazardDrawerContent}>
             <Text style={styles.drawerTitle}>SELECT HAZARD TO BROADCAST</Text>
             <Text style={styles.drawerSubtitle}>
-              Gossip synced to all peer bikes within radio mesh
+              Gossip synced via CRDT OR-Set to all peer bikes
             </Text>
 
             <View style={styles.drawerGrid}>
@@ -457,7 +684,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
   },
   hudOverlayTop: {
-    paddingTop: 54,
+    paddingTop: 50,
     paddingHorizontal: Spacing.base,
     backgroundColor: Colors.surface,
     borderBottomWidth: 1,
@@ -466,16 +693,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingBottom: Spacing.md,
+    zIndex: 10,
   },
   speedCluster: {
     alignItems: 'center',
-    minWidth: 90,
+    minWidth: 85,
   },
   speedValue: {
     fontSize: Typography.size['4xl'],
     fontFamily: Typography.fontFamily.bold,
     color: Colors.primary,
-    lineHeight: 52,
+    lineHeight: 50,
   },
   speedUnit: {
     fontSize: Typography.size.xs,
@@ -533,6 +761,82 @@ const styles = StyleSheet.create({
     fontFamily: Typography.fontFamily.bold,
     color: Colors.textPrimary,
   },
+  gpsWarningBanner: {
+    backgroundColor: 'rgba(255, 107, 44, 0.2)',
+    paddingVertical: 4,
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.primary,
+  },
+  gpsWarningText: {
+    fontSize: 10,
+    fontFamily: Typography.fontFamily.bold,
+    color: Colors.primary,
+    letterSpacing: 1,
+  },
+  viewControlsRow: {
+    position: 'absolute',
+    top: 130,
+    left: Spacing.base,
+    right: Spacing.base,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    zIndex: 20,
+  },
+  modeToggleGroup: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(18, 24, 38, 0.9)',
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    padding: 2,
+  },
+  modeButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: Radius.full,
+  },
+  modeButtonActive: {
+    backgroundColor: Colors.primary,
+  },
+  modeButtonText: {
+    fontSize: 11,
+    fontFamily: Typography.fontFamily.bold,
+    color: Colors.textSecondary,
+  },
+  modeButtonTextActive: {
+    color: Colors.textInverse,
+  },
+  recenterButton: {
+    backgroundColor: 'rgba(18, 24, 38, 0.9)',
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    borderColor: Colors.accent,
+    justifyContent: 'center',
+  },
+  recenterText: {
+    fontSize: 11,
+    fontFamily: Typography.fontFamily.bold,
+    color: Colors.accent,
+  },
+
+  // ─── MapLibre Container ──────────────────────────────────────────────
+  mapContainer: {
+    flex: 1,
+  },
+  map: {
+    flex: 1,
+  },
+  mapOwnMarkerWrapper: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mapPeerWrapper: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 
   // ─── Tactical Radar Display ──────────────────────────────────────────
   radarContainer: {
@@ -549,7 +853,7 @@ const styles = StyleSheet.create({
   },
   radarRangeText: {
     position: 'absolute',
-    top: Spacing.base,
+    top: 55,
     left: Spacing.base,
     fontSize: Typography.size.xs,
     fontFamily: Typography.fontFamily.mono,
@@ -562,9 +866,9 @@ const styles = StyleSheet.create({
   },
   ownPulseRing: {
     position: 'absolute',
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     borderWidth: 2,
     borderColor: Colors.primaryGlow,
     backgroundColor: 'rgba(255, 107, 44, 0.15)',
@@ -593,10 +897,10 @@ const styles = StyleSheet.create({
     borderBottomColor: Colors.background,
   },
   ownLabel: {
-    fontSize: 10,
+    fontSize: 9,
     fontFamily: Typography.fontFamily.bold,
     color: Colors.primary,
-    marginTop: 4,
+    marginTop: 3,
   },
 
   // Peer Markers
@@ -632,13 +936,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: Radius.sm,
-    marginTop: 4,
+    marginTop: 3,
     alignItems: 'center',
     borderWidth: 1,
     borderColor: Colors.surfaceBorder,
   },
   peerCallsign: {
-    fontSize: 10,
+    fontSize: 9,
     fontFamily: Typography.fontFamily.bold,
     color: Colors.accent,
   },
@@ -650,10 +954,9 @@ const styles = StyleSheet.create({
 
   // Hazard Markers
   hazardMarker: {
-    position: 'absolute',
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
@@ -661,7 +964,24 @@ const styles = StyleSheet.create({
     ...Shadows.md,
   },
   hazardIcon: {
-    fontSize: 18,
+    fontSize: 16,
+  },
+
+  soloRadarMessage: {
+    position: 'absolute',
+    bottom: 30,
+    alignItems: 'center',
+  },
+  soloRadarText: {
+    fontSize: Typography.size.xs,
+    fontFamily: Typography.fontFamily.bold,
+    color: Colors.textSecondary,
+    letterSpacing: 1,
+  },
+  soloRadarSubtext: {
+    fontSize: 9,
+    color: Colors.surfaceBorder,
+    marginTop: 2,
   },
 
   // ─── Bottom Actions HUD ──────────────────────────────────────────────
@@ -669,7 +989,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surface,
     paddingHorizontal: Spacing.base,
     paddingTop: Spacing.md,
-    paddingBottom: 34,
+    paddingBottom: 28,
     borderTopWidth: 1,
     borderTopColor: Colors.surfaceBorder,
   },
@@ -699,21 +1019,21 @@ const styles = StyleSheet.create({
   },
   quickTile: {
     flex: 1,
-    height: 52,
+    height: 48,
     backgroundColor: Colors.surfaceElevated,
     borderWidth: 1.5,
     borderRadius: Radius.md,
-    marginHorizontal: 4,
+    marginHorizontal: 3,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
   },
   quickEmoji: {
-    fontSize: 18,
-    marginRight: 6,
+    fontSize: 16,
+    marginRight: 4,
   },
   quickText: {
-    fontSize: Typography.size.xs,
+    fontSize: 10,
     fontFamily: Typography.fontFamily.bold,
     color: Colors.textPrimary,
   },

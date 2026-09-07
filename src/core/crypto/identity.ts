@@ -110,8 +110,109 @@ const STORAGE_KEYS = {
 
 // ─── Module References (set at app startup) ──────────────────────────────
 
-let _cryptoModule: ICryptoModule | null = null;
-let _keyStorage: IKeyStorage | null = null;
+import { ed25519, x25519 } from '@noble/curves/ed25519.js';
+import { blake3 } from '@noble/hashes/blake3.js';
+
+class DefaultKeyStorage implements IKeyStorage {
+  private mem = new Map<string, string>();
+  private mmkv: any = null;
+
+  constructor() {
+    try {
+      // Lazy load MMKV if native binary is available
+      const { MMKV } = require('react-native-mmkv');
+      if (MMKV) {
+        this.mmkv = new MMKV({ id: 'konvoy.ephemeral.keys' });
+      }
+    } catch {
+      // In-memory fallback
+    }
+  }
+
+  getString(key: string): string | undefined {
+    if (this.mmkv) {
+      try {
+        const val = this.mmkv.getString(key);
+        if (val !== undefined) return val;
+      } catch {
+        // Fallback to mem
+      }
+    }
+    return this.mem.get(key);
+  }
+
+  set(key: string, value: string): void {
+    if (this.mmkv) {
+      try {
+        this.mmkv.set(key, value);
+      } catch {
+        // Fallback to mem
+      }
+    }
+    this.mem.set(key, value);
+  }
+
+  delete(key: string): void {
+    if (this.mmkv) {
+      try {
+        this.mmkv.delete(key);
+      } catch {
+        // Fallback to mem
+      }
+    }
+    this.mem.delete(key);
+  }
+
+  contains(key: string): boolean {
+    if (this.mmkv) {
+      try {
+        if (this.mmkv.contains(key)) return true;
+      } catch {
+        // Fallback to mem
+      }
+    }
+    return this.mem.has(key);
+  }
+}
+
+const defaultCryptoModule: ICryptoModule = {
+  generateEd25519KeyPair() {
+    const pair = ed25519.keygen();
+    const pk = new Uint8Array(pair.publicKey);
+    const sk = new Uint8Array(pair.secretKey);
+    return {
+      publicKey: pk.buffer.slice(pk.byteOffset, pk.byteOffset + pk.byteLength),
+      secretKey: sk.buffer.slice(sk.byteOffset, sk.byteOffset + sk.byteLength),
+    };
+  },
+  generateX25519KeyPair() {
+    const pair = x25519.keygen();
+    const pk = new Uint8Array(pair.publicKey);
+    const sk = new Uint8Array(pair.secretKey);
+    return {
+      publicKey: pk.buffer.slice(pk.byteOffset, pk.byteOffset + pk.byteLength),
+      secretKey: sk.buffer.slice(sk.byteOffset, sk.byteOffset + sk.byteLength),
+    };
+  },
+  blake3(data: ArrayBuffer, outputLen: number) {
+    const res = blake3(new Uint8Array(data), { dkLen: outputLen });
+    return res.buffer.slice(res.byteOffset, res.byteOffset + res.byteLength);
+  },
+  sign(message: ArrayBuffer, secretKey: ArrayBuffer) {
+    const sig = ed25519.sign(new Uint8Array(message), new Uint8Array(secretKey));
+    return sig.buffer.slice(sig.byteOffset, sig.byteOffset + sig.byteLength);
+  },
+  verify(message: ArrayBuffer, signature: ArrayBuffer, publicKey: ArrayBuffer) {
+    return ed25519.verify(new Uint8Array(signature), new Uint8Array(message), new Uint8Array(publicKey));
+  },
+  sharedSecret(mySecretKey: ArrayBuffer, theirPublicKey: ArrayBuffer) {
+    const sec = x25519.getSharedSecret(new Uint8Array(mySecretKey), new Uint8Array(theirPublicKey));
+    return sec.buffer.slice(sec.byteOffset, sec.byteOffset + sec.byteLength);
+  },
+};
+
+let _cryptoModule: ICryptoModule = defaultCryptoModule;
+let _keyStorage: IKeyStorage = new DefaultKeyStorage();
 
 /**
  * Inject the native crypto module and storage implementation.
@@ -158,22 +259,22 @@ function loadFromStorage(): SessionIdentity | null {
 function generateNewIdentity(): SessionIdentity {
   if (!_cryptoModule) throw new Error('Crypto module not configured');
 
-  // Generate key pairs via native module
-  const ed25519 = _cryptoModule.generateEd25519KeyPair();
-  const x25519 = _cryptoModule.generateX25519KeyPair();
+  // Generate key pairs via native module or noble fallback
+  const ed25519Keys = _cryptoModule.generateEd25519KeyPair();
+  const x25519Keys = _cryptoModule.generateX25519KeyPair();
 
   // Derive fingerprint: BLAKE3(ed25519_pk)[:16]
-  const fullHash = _cryptoModule.blake3(ed25519.publicKey, 16);
+  const fullHash = _cryptoModule.blake3(ed25519Keys.publicKey, 16);
   const fingerprint = new Uint8Array(fullHash);
 
   const identity: SessionIdentity = {
     signingKeyPair: {
-      publicKey: new Uint8Array(ed25519.publicKey),
-      secretKey: new Uint8Array(ed25519.secretKey),
+      publicKey: new Uint8Array(ed25519Keys.publicKey),
+      secretKey: new Uint8Array(ed25519Keys.secretKey),
     },
     encryptionKeyPair: {
-      publicKey: new Uint8Array(x25519.publicKey),
-      secretKey: new Uint8Array(x25519.secretKey),
+      publicKey: new Uint8Array(x25519Keys.publicKey),
+      secretKey: new Uint8Array(x25519Keys.secretKey),
     },
     fingerprint,
     fingerprintHex: toHex(fingerprint),
