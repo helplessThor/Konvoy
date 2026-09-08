@@ -8,7 +8,6 @@
  */
 
 import { SimplePool, generateSecretKey, getPublicKey, finalizeEvent } from 'nostr-tools';
-import { sha256 } from '@noble/hashes/sha256';
 import crypto from 'react-native-quick-crypto';
 import { Buffer } from 'buffer';
 import { uint8ArrayToBase64, base64ToUint8Array } from '../utils/base64';
@@ -57,15 +56,13 @@ export class NostrTransport {
     }
 
     // 1. Derive strong 32-byte AES key using SHA-256(secret)
-    const secretBytes = new TextEncoder().encode(channelSecret);
-    this.encryptionKey = sha256(secretBytes);
+    const secretBuffer = Buffer.from(channelSecret, 'utf-8');
+    this.encryptionKey = new Uint8Array(crypto.createHash('sha256').update(secretBuffer).digest());
 
     // 2. Derive channel tag hash for routing: SHA-256(encryptionKey)
     // We hash it again so the encryption key is never exposed in the tags
-    const tagHashBytes = sha256(this.encryptionKey);
-    this.channelHash = Array.from(tagHashBytes)
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join('');
+    const tagHashBuffer = crypto.createHash('sha256').update(Buffer.from(this.encryptionKey)).digest();
+    this.channelHash = tagHashBuffer.toString('hex');
 
     this.isRunning = true;
 
@@ -77,8 +74,8 @@ export class NostrTransport {
           kinds: [29333],
           '#h': [this.channelHash],
           since: Math.floor(Date.now() / 1000), // Only listen to new events
-        },
-      ],
+        }
+      ] as any,
       {
         onevent: (event) => this.handleEvent(event),
       }
@@ -110,7 +107,7 @@ export class NostrTransport {
       const iv = crypto.randomBytes(12);
       
       const cipher = crypto.createCipheriv('aes-256-gcm', this.encryptionKey, iv);
-      const encrypted = Buffer.concat([cipher.update(Buffer.from(payloadBytes)), cipher.final()]);
+      const encrypted = Buffer.concat([cipher.update(Buffer.from(payloadBytes) as any), cipher.final()]);
       const authTag = cipher.getAuthTag();
 
       // Format: [12 bytes IV] [16 bytes AuthTag] [Encrypted Payload]
@@ -163,17 +160,18 @@ export class NostrTransport {
       const encrypted = buf.subarray(28);
 
       // 2. Decrypt AES-256-GCM
-      const decipher = crypto.createDecipheriv('aes-256-gcm', this.encryptionKey, Buffer.from(iv));
-      decipher.setAuthTag(Buffer.from(authTag));
+      const decipher = crypto.createDecipheriv('aes-256-gcm', this.encryptionKey, Buffer.from(iv) as any);
+      decipher.setAuthTag(Buffer.from(authTag) as any);
       
       const decrypted = Buffer.concat([
-        decipher.update(Buffer.from(encrypted)),
+        decipher.update(Buffer.from(encrypted) as any),
         decipher.final()
       ]);
 
       // 3. Forward to Router
       // The router uses the pubkey as the "peerId" transport identifier
-      this.onPacketReceived(event.pubkey, decrypted.buffer.slice(decrypted.byteOffset, decrypted.byteOffset + decrypted.byteLength));
+      const decryptedUint8 = new Uint8Array(decrypted);
+      this.onPacketReceived(event.pubkey, decryptedUint8.buffer.slice(decryptedUint8.byteOffset, decryptedUint8.byteOffset + decryptedUint8.byteLength));
     } catch (err) {
       // Failed to decrypt or parse - likely wrong channel secret or corrupted packet
     }
