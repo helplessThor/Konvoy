@@ -180,7 +180,7 @@ export const IntercomScreen: React.FC<IntercomScreenProps> = ({
         ? 'Hands-Free (VOX) active'
         : 'Tap once to talk';
     }
-    return 'Direct Rider Link';
+    return 'Direct Member Link';
   };
 
   const toggleVAD = () => {
@@ -209,8 +209,8 @@ export const IntercomScreen: React.FC<IntercomScreenProps> = ({
       <View style={styles.topBanner}>
         <View style={styles.statusRow}>
           <View style={styles.channelBadge}>
-            <Text style={styles.channelText}>
-              CHANNEL: {selectedChannel === 'ALL' ? 'ALL RIDERS' : `${selectedChannel} RIDER`}
+            <Text style={styles.channelText} numberOfLines={1} adjustsFontSizeToFit>
+              CHANNEL: {selectedChannel === 'ALL' ? 'ALL MEMBERS' : `${selectedChannel} MEMBER`}
             </Text>
           </View>
 
@@ -347,7 +347,7 @@ export const IntercomScreen: React.FC<IntercomScreenProps> = ({
 
       {/* ─── Convoy Rider Roster ─────────────────────────────────────── */}
       <View style={styles.rosterHeader}>
-        <Text style={styles.rosterTitle}>GROUP RIDERS ({peers.length + 1})</Text>
+        <Text style={styles.rosterTitle}>CONVOY MEMBERS ({peers.length + 1})</Text>
         <Text style={styles.rosterSubtitle}>DIRECT OFF-GRID</Text>
       </View>
 
@@ -359,7 +359,7 @@ export const IntercomScreen: React.FC<IntercomScreenProps> = ({
           </View>
           <View style={styles.peerInfo}>
             <View style={styles.peerNameRow}>
-              <Text style={styles.peerName}>You (Your Bike)</Text>
+              <Text style={styles.peerName}>You (Your Vehicle)</Text>
               <View style={[styles.roleBadge, { backgroundColor: Colors.primaryGlow }]}>
                 <Text style={[styles.roleText, { color: Colors.primary }]}>YOU</Text>
               </View>
@@ -378,9 +378,9 @@ export const IntercomScreen: React.FC<IntercomScreenProps> = ({
         {peers.length === 0 ? (
           <View style={styles.emptyMeshCard}>
             <Text style={styles.emptyMeshEmoji}>📡</Text>
-            <Text style={styles.emptyMeshTitle}>LOOKING FOR NEARBY RIDERS</Text>
+            <Text style={styles.emptyMeshTitle}>LOOKING FOR NEARBY MEMBERS</Text>
             <Text style={styles.emptyMeshSubtext}>
-              Searching for group members nearby. When riders come within range, they connect automatically.
+              Searching for group members nearby. When members come within range, they connect automatically.
             </Text>
           </View>
         ) : (
@@ -456,8 +456,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: Spacing.md,
+    flexWrap: 'wrap',
+    gap: 8,
   },
   channelBadge: {
+    flex: 1,
+    minWidth: 120,
     backgroundColor: Colors.surfaceElevated,
     paddingHorizontal: Spacing.md,
     paddingVertical: 6,

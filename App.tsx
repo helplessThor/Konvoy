@@ -36,6 +36,7 @@ import { useHazardStore } from './src/core/map/crdt';
 import { HazardType } from './src/core/net/wire';
 import { useSettingsStore } from './src/core/settings/settingsStore';
 import { useDeviceBattery } from './src/services/BatteryService';
+import { meshOrchestrator } from './src/services/MeshOrchestrator';
 
 type TabKey = 'MAP' | 'INTERCOM' | 'SETTINGS';
 
@@ -83,9 +84,13 @@ export default function App(): React.JSX.Element {
     BackgroundService.start();
 
     // 3. Start high-precision GPS tracking with runtime permissions
-    locationService.start();
+    locationService.start().then(() => {
+      // Start mesh orchestrator once location and permissions are granted
+      meshOrchestrator.start();
+    });
 
     return () => {
+      meshOrchestrator.stop();
       locationService.stop();
       BackgroundService.stop();
     };
@@ -118,7 +123,7 @@ export default function App(): React.JSX.Element {
       speed: peer.speed,
       altitude: peer.altitude,
       lastSeen: peer.lastSeenMs,
-      callsign: `Rider ${peer.fingerprintHex.substring(0, 4).toUpperCase()}`,
+      callsign: `Member ${peer.fingerprintHex.substring(0, 4).toUpperCase()}`,
     }));
   }, [convoyPeers]);
 
@@ -126,7 +131,7 @@ export default function App(): React.JSX.Element {
   const voicePeers = useMemo(() => {
     return convoyPeers.map((peer, idx) => ({
       peerId: peer.fingerprintHex,
-      callsign: `Rider ${peer.fingerprintHex.substring(0, 4).toUpperCase()}`,
+      callsign: `Member ${peer.fingerprintHex.substring(0, 4).toUpperCase()}`,
       role: (idx === 0 ? 'LEAD' : 'MEMBER') as 'LEAD' | 'TAIL' | 'MEMBER',
       batteryPercent: undefined,
       rssi: -62,
@@ -192,7 +197,7 @@ export default function App(): React.JSX.Element {
             isTransmitting={isTransmitting}
             activeSpeakerName={
               activeSpeakers.length > 0
-                ? `Rider ${activeSpeakers[0]!.fingerprintHex.substring(0, 4).toUpperCase()}`
+                ? `Member ${activeSpeakers[0]!.fingerprintHex.substring(0, 4).toUpperCase()}`
                 : null
             }
             intercomMode={intercomMode}

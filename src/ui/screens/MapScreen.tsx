@@ -22,6 +22,7 @@ import {
   Modal,
   Animated,
   Alert,
+  ScrollView,
 } from 'react-native';
 import { Map, Camera, Marker } from '@maplibre/maplibre-react-native';
 import { Colors, Typography, Spacing, TouchTargets, Radius, Shadows } from '../theme/tokens';
@@ -389,7 +390,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statBox}>
-            <Text style={styles.statLabel}>RIDERS</Text>
+            <Text style={styles.statLabel}>MEMBERS</Text>
             <Text style={[styles.statValue, { color: peers.length > 0 ? Colors.accent : Colors.textPrimary }]}>
               {peers.length + 1} {peers.length === 0 ? 'SOLO' : 'IN GROUP'}
             </Text>
@@ -426,7 +427,8 @@ export const MapScreen: React.FC<MapScreenProps> = ({
 
       {/* View Switcher & Recenter Floating Controls */}
       <View style={styles.viewControlsRow}>
-        <View style={styles.modeToggleGroup}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.scrollControls}>
+          <View style={styles.modeToggleGroup}>
           <TouchableOpacity
             style={[styles.modeButton, viewMode === 'MAP' && styles.modeButtonActive]}
             onPress={() => setViewMode('MAP')}
@@ -479,6 +481,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({
             </TouchableOpacity>
           </View>
         )}
+        </ScrollView>
       </View>
 
       {/* ─── Map / Radar Area ─────────────────────────────────────────── */}
@@ -631,8 +634,8 @@ export const MapScreen: React.FC<MapScreenProps> = ({
 
           {radarPeers.length === 0 && (
             <View style={styles.soloRadarMessage}>
-              <Text style={styles.soloRadarText}>NO NEARBY RIDERS</Text>
-              <Text style={styles.soloRadarSubtext}>Searching for riders in your group...</Text>
+              <Text style={styles.soloRadarText}>NO NEARBY MEMBERS</Text>
+              <Text style={styles.soloRadarSubtext}>Searching for members in your group...</Text>
             </View>
           )}
         </View>
@@ -649,7 +652,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({
           <Text style={styles.dropHazardText}>REPORT HAZARD</Text>
         </TouchableOpacity>
 
-        <View style={styles.quickHazardRow}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickHazardRow}>
           <TouchableOpacity
             style={[styles.quickTile, { borderColor: Colors.hazardPolice }]}
             onPress={() => handleQuickDrop(HazardType.Police)}
@@ -681,7 +684,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({
             <Text style={styles.quickEmoji}>🚗</Text>
             <Text style={styles.quickText}>TRAFFIC</Text>
           </TouchableOpacity>
-        </View>
+        </ScrollView>
       </View>
 
       {/* ─── Hazard Detail Modal ───────────────────────────────────────── */}
@@ -755,7 +758,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({
           <View style={styles.hazardDrawerContent}>
             <Text style={styles.drawerTitle}>REPORT ROAD HAZARD</Text>
             <Text style={styles.drawerSubtitle}>
-              Alerts all riders in your group instantly
+              Alerts all members in your group instantly
             </Text>
 
             <View style={styles.drawerGrid}>
@@ -906,9 +909,11 @@ const styles = StyleSheet.create({
     top: 130,
     left: Spacing.base,
     right: Spacing.base,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
     zIndex: 20,
+  },
+  scrollControls: {
+    gap: 8,
+    paddingRight: Spacing.xl,
   },
   modeToggleGroup: {
     flexDirection: 'row',
@@ -937,6 +942,7 @@ const styles = StyleSheet.create({
   rightControlsRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
   },
   styleToggleGroup: {
     flexDirection: 'row',
@@ -1171,16 +1177,16 @@ const styles = StyleSheet.create({
   },
   quickHazardRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     marginTop: Spacing.md,
+    gap: 6,
   },
   quickTile: {
-    flex: 1,
     height: 48,
+    minWidth: 90,
+    paddingHorizontal: 12,
     backgroundColor: Colors.surfaceElevated,
     borderWidth: 1.5,
     borderRadius: Radius.md,
-    marginHorizontal: 3,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',

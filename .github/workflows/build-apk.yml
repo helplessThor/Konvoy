@@ -3,16 +3,16 @@ name: Build Android APK
 on:
   push:
     branches: [ main, master ]
+    tags:
+      - 'v*' # Triggers the workflow when you push a version tag like v1.0.0
   pull_request:
     branches: [ main, master ]
-  workflow_dispatch: # Allows manual trigger from GitHub web UI
+  workflow_dispatch:
 
 jobs:
   build:
     name: Build Release APK
     runs-on: ubuntu-latest
-    
-    # 1. ADDED: Grant write access to create/update releases
     permissions:
       contents: write
 
@@ -50,79 +50,27 @@ jobs:
           cd android
           ./gradlew assembleRelease --no-daemon
 
+      - name: Extract version
+        run: echo "VERSION=$(node -p "require('./package.json').version")" >> $GITHUB_ENV
+
+      - name: Rename Release APK
+        run: mv android/app/build/outputs/apk/release/app-release.apk android/app/build/outputs/apk/release/Konvoy-v${{ env.VERSION }}.apk
+
       - name: Upload Release APK as Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Konvoy-Release-APK
-          path: android/app/build/outputs/apk/release/app-release.apk
+          path: android/app/build/outputs/apk/release/Konvoy-v${{ env.VERSION }}.apk
           if-no-files-found: error
           retention-days: 14
 
-      # 2. ADDED: Automatically push the APK to the Releases section
-      - name: Update GitHub Release Assets
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+      # UPDATED: Automatically creates a permanent versioned release when a tag is pushed
+      - name: Create Versioned GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: latest
-          name: "Latest Continuous Build"
-          body: "Automated pre-release compiled directly from the latest commit on main/master."
-          prerelease: true
-          files: android/app/build/outputs/apk/release/app-release.apk
-
-
-
-# name: Build Android APK
-
-# on:
-#   push:
-#     branches: [ main, master ]
-#   pull_request:
-#     branches: [ main, master ]
-#   workflow_dispatch: # Allows manual trigger from GitHub web UI
-
-# jobs:
-#   build:
-#     name: Build Release APK
-#     runs-on: ubuntu-latest
-
-#     steps:
-#       - name: Checkout repository
-#         uses: actions/checkout@v4
-
-#       - name: Setup Node.js
-#         uses: actions/setup-node@v4
-#         with:
-#           node-version: 22
-#           cache: 'npm'
-
-#       - name: Install dependencies
-#         run: npm ci
-
-#       - name: Setup Java JDK 21
-#         uses: actions/setup-java@v4
-#         with:
-#           distribution: 'temurin'
-#           java-version: '21'
-
-#       - name: Setup Android SDK & NDK
-#         uses: android-actions/setup-android@v3
-
-#       - name: Install Android NDK & CMake
-#         run: |
-#           sdkmanager "ndk;27.1.12297006" "cmake;3.22.1" "platforms;android-34" "build-tools;34.0.0"
-
-#       - name: Grant execute permission for gradlew
-#         run: chmod +x android/gradlew
-
-#       - name: Build Android Release APK
-#         run: |
-#           cd android
-#           ./gradlew assembleRelease --no-daemon
-
-#       - name: Upload Release APK
-#         uses: actions/upload-artifact@v4
-#         with:
-#           name: Konvoy-Release-APK
-#           path: android/app/build/outputs/apk/release/app-release.apk
-#           if-no-files-found: error
-#           retention-days: 14
+          name: "Release ${{ github.ref_name }}"
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          files: android/app/build/outputs/apk/release/Konvoy-v${{ env.VERSION }}.apk
