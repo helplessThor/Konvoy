@@ -16,6 +16,8 @@ export interface SettingsState {
   bleEnabled: boolean;
   wifiDirectEnabled: boolean;
   nostrFallbackEnabled: boolean;
+  internetChannelSecret: string;
+  isInternetChannelConnected: boolean;
 
   // Audio DSP & PTT
   pttToggleMode: boolean; // false = hold to talk, true = tap to toggle
@@ -33,6 +35,8 @@ export interface SettingsState {
   setBleEnabled: (val: boolean) => void;
   setWifiDirectEnabled: (val: boolean) => void;
   setNostrFallbackEnabled: (val: boolean) => void;
+  setInternetChannelSecret: (val: string) => void;
+  setIsInternetChannelConnected: (val: boolean) => void;
   setPttToggleMode: (val: boolean) => void;
   setIntercomMode: (mode: IntercomMode) => void;
   setNoiseGateActive: (val: boolean) => void;
@@ -97,6 +101,8 @@ const DEFAULT_SETTINGS: Omit<
   | 'setBleEnabled'
   | 'setWifiDirectEnabled'
   | 'setNostrFallbackEnabled'
+  | 'setInternetChannelSecret'
+  | 'setIsInternetChannelConnected'
   | 'setPttToggleMode'
   | 'setIntercomMode'
   | 'setNoiseGateActive'
@@ -108,6 +114,8 @@ const DEFAULT_SETTINGS: Omit<
   bleEnabled: true,
   wifiDirectEnabled: true,
   nostrFallbackEnabled: true,
+  internetChannelSecret: '',
+  isInternetChannelConnected: false,
   pttToggleMode: false,
   intercomMode: IntercomMode.PushToTalk,
   noiseGateActive: true,
@@ -155,6 +163,16 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setNostrFallbackEnabled: (val) => {
     set({ nostrFallbackEnabled: val });
     saveSettings({ ...get(), nostrFallbackEnabled: val });
+  },
+
+  setInternetChannelSecret: (val) => {
+    set({ internetChannelSecret: val });
+    saveSettings({ ...get(), internetChannelSecret: val });
+  },
+
+  setIsInternetChannelConnected: (val) => {
+    // We don't save connection state across restarts
+    set({ isInternetChannelConnected: val });
   },
 
   setPttToggleMode: (val) => {

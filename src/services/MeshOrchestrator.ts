@@ -7,6 +7,7 @@
  */
 
 import { RadioTransport } from '../core/radio/transport';
+import { NostrTransport } from '../core/radio/nostr';
 import { MeshRouter } from '../core/net/router';
 import { TelemetryManager } from '../core/map/telemetry';
 import { locationService } from './LocationService';
@@ -18,6 +19,7 @@ export class MeshOrchestrator {
   private static instance: MeshOrchestrator | null = null;
   
   public transport: RadioTransport;
+  public nostr: NostrTransport;
   public router: MeshRouter;
   public telemetry: TelemetryManager;
 
@@ -25,6 +27,7 @@ export class MeshOrchestrator {
 
   private constructor() {
     this.transport = new RadioTransport();
+    this.nostr = new NostrTransport();
     this.router = new MeshRouter();
     this.telemetry = new TelemetryManager();
 
@@ -41,8 +44,21 @@ export class MeshOrchestrator {
   private wireSubsystems() {
     // 1. Configure Router -> Transport (Outgoing)
     this.router.setTransport(
-      (peerId, data) => this.transport.sendPacket(peerId, data),
-      () => this.transport.getConnectedPeers()
+      (peerId, data) => {
+        if (peerId === 'nostr-channel') {
+          this.nostr.broadcastPacket(data);
+        } else {
+          this.transport.sendPacket(peerId, data);
+        }
+      },
+      () => {
+        const peers = this.transport.getConnectedPeers();
+        // Expose Nostr channel as a connected peer so the router broadcasts to it
+        if ((this.nostr as any).isRunning) {
+          peers.push('nostr-channel');
+        }
+        return peers;
+      }
     );
 
     // 2. Configure Transport -> Router (Incoming)
@@ -57,6 +73,10 @@ export class MeshOrchestrator {
       onPeerLost: (peerId) => {
         console.log('[MeshOrchestrator] Lost peer:', peerId);
       }
+    });
+
+    this.nostr.setCallbacks((peerId, data) => {
+      this.router.handleIncoming(peerId, data);
     });
 
     // 3. Configure Telemetry -> Router (Outgoing GPS packets)
@@ -130,6 +150,21 @@ export class MeshOrchestrator {
     useConvoyStore.getState().setIsBroadcasting(false);
 
     this.transport.stop();
+    this.nostr.disconnect();
+  }
+
+  /**
+   * Connect to an internet channel via Nostr
+   */
+  async connectInternetChannel(secret: string) {
+    await this.nostr.connect(secret);
+  }
+
+  /**
+   * Disconnect from internet channel
+   */
+  disconnectInternetChannel() {
+    this.nostr.disconnect();
   }
 }
 

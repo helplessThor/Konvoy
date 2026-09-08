@@ -15,9 +15,11 @@ import {
   TouchableOpacity,
   Alert,
   Vibration,
+  TextInput,
 } from 'react-native';
 import { Colors, Typography, Spacing, TouchTargets, Radius, Shadows } from '../theme/tokens';
 import { useSettingsStore } from '../../core/settings/settingsStore';
+import { meshOrchestrator } from '../../services/MeshOrchestrator';
 
 interface SettingsScreenProps {
   sessionFingerprint?: string;
@@ -39,6 +41,12 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
   const nostrFallbackEnabled = useSettingsStore((state) => state.nostrFallbackEnabled);
   const setNostrFallbackEnabled = useSettingsStore((state) => state.setNostrFallbackEnabled);
+
+  const internetChannelSecret = useSettingsStore((state) => state.internetChannelSecret);
+  const setInternetChannelSecret = useSettingsStore((state) => state.setInternetChannelSecret);
+
+  const isInternetChannelConnected = useSettingsStore((state) => state.isInternetChannelConnected);
+  const setIsInternetChannelConnected = useSettingsStore((state) => state.setIsInternetChannelConnected);
 
   const noiseGateActive = useSettingsStore((state) => state.noiseGateActive);
   const setNoiseGateActive = useSettingsStore((state) => state.setNoiseGateActive);
@@ -87,6 +95,26 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         },
       ]
     );
+  };
+
+  const toggleNostrConnection = async () => {
+    if (isInternetChannelConnected) {
+      meshOrchestrator.disconnectInternetChannel();
+      setIsInternetChannelConnected(false);
+      Vibration.vibrate(25);
+    } else {
+      if (!internetChannelSecret.trim()) {
+        Alert.alert('Channel Secret Required', 'Please enter a shared channel secret to connect over the internet.');
+        return;
+      }
+      try {
+        await meshOrchestrator.connectInternetChannel(internetChannelSecret);
+        setIsInternetChannelConnected(true);
+        Vibration.vibrate(50);
+      } catch (err) {
+        Alert.alert('Connection Failed', 'Could not connect to Nostr relays.');
+      }
+    }
   };
 
   return (
@@ -162,17 +190,34 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
           <View style={styles.divider} />
 
-          <View style={styles.toggleRow}>
+          <View style={styles.settingBlock}>
             <View style={styles.toggleInfo}>
-              <Text style={styles.toggleTitle}>Nostr Relay Fallback</Text>
-              <Text style={styles.toggleSubtitle}>NIP-17/44 encrypted bridge when cellular is back</Text>
+              <Text style={styles.toggleTitle}>Nostr Internet Channel</Text>
+              <Text style={styles.toggleSubtitle}>Global AES-256-GCM encrypted relay bridge</Text>
             </View>
-            <Switch
-              value={nostrFallbackEnabled}
-              onValueChange={setNostrFallbackEnabled}
-              trackColor={{ false: Colors.surfaceBorder, true: Colors.primary }}
-              thumbColor={Colors.textPrimary}
-            />
+            <View style={styles.inputRow}>
+              <TextInput
+                style={styles.textInput}
+                placeholder="Enter Channel Secret (e.g. secret-ride-123)"
+                placeholderTextColor={Colors.textSecondary}
+                value={internetChannelSecret}
+                onChangeText={setInternetChannelSecret}
+                autoCapitalize="none"
+                autoCorrect={false}
+                secureTextEntry={false}
+              />
+              <TouchableOpacity
+                style={[
+                  styles.connectButton,
+                  isInternetChannelConnected ? styles.connectButtonActive : null
+                ]}
+                onPress={toggleNostrConnection}
+              >
+                <Text style={styles.connectButtonText}>
+                  {isInternetChannelConnected ? 'DISCONNECT' : 'CONNECT'}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
 
@@ -557,6 +602,40 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: Colors.surfaceBorder,
     marginTop: 2,
+  },
+  inputRow: {
+    flexDirection: 'row',
+    marginTop: Spacing.sm,
+    gap: Spacing.sm,
+  },
+  textInput: {
+    flex: 1,
+    height: 44,
+    backgroundColor: Colors.background,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    borderRadius: Radius.md,
+    paddingHorizontal: Spacing.sm,
+    color: Colors.textPrimary,
+    fontFamily: Typography.fontFamily.mono,
+    fontSize: Typography.size.xs,
+  },
+  connectButton: {
+    height: 44,
+    paddingHorizontal: Spacing.md,
+    backgroundColor: Colors.surfaceBorder,
+    borderRadius: Radius.md,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  connectButtonActive: {
+    backgroundColor: Colors.danger,
+  },
+  connectButtonText: {
+    color: Colors.textInverse,
+    fontFamily: Typography.fontFamily.bold,
+    fontSize: Typography.size.xs,
+    letterSpacing: 0.5,
   },
 });
 
