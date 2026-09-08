@@ -150,19 +150,14 @@ export class RadioTransport {
   }
 
   /**
-   * Establish a Wi-Fi P2P group for high-bandwidth data.
+   * Start Wi-Fi P2P autonomous discovery using DNS-SD.
    */
-  async startWiFiP2P(channelToken: string): Promise<{
-    address: string;
-    port: number;
-    isGroupOwner: boolean;
-  }> {
+  async startWiFiP2PDiscovery(channelToken: string): Promise<boolean> {
     if (!this.radioModule) {
       throw new Error('Radio module not available');
     }
-    return this.radioModule.startWiFiP2PGroup(channelToken);
+    return this.radioModule.startWiFiP2PDiscovery(channelToken);
   }
-
   /**
    * Connect to a Wi-Fi P2P peer.
    */

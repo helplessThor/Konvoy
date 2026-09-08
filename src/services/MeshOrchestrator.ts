@@ -134,8 +134,8 @@ export class MeshOrchestrator {
     const tokenBuffer = new Uint8Array(8);
     tokenBuffer.fill(0x01); // Generic fallback token for now
     const channelTokenHex = Array.from(tokenBuffer).map(b => b.toString(16).padStart(2, '0')).join('');
-    this.transport.startWiFiP2P(channelTokenHex).catch(err => {
-      console.warn('[MeshOrchestrator] Failed to start Wi-Fi P2P group:', err);
+    this.transport.startWiFiP2PDiscovery(channelTokenHex).catch(err => {
+      console.warn('[MeshOrchestrator] Failed to start Wi-Fi P2P discovery:', err);
     });
 
     // Start velocity-adaptive broadcasting

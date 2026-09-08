@@ -70,6 +70,10 @@ class KonvoyRadioModule(reactContext: ReactApplicationContext) :
     private var serverSocket: ServerSocket? = null
     private val radioThread = HandlerThread("KonvoyRadioThread").also { it.start() }
     private val radioHandler = Handler(radioThread.looper)
+    
+    private var p2pReceiver: BroadcastReceiver? = null
+    private var isDiscovering = false
+    private val discoveredPorts = ConcurrentHashMap<String, Int>()
 
     // ─── Peer Connection ──────────────────────────────────────────────
 
@@ -231,80 +235,157 @@ class KonvoyRadioModule(reactContext: ReactApplicationContext) :
     // ─── Wi-Fi P2P Group ──────────────────────────────────────────────
 
     @ReactMethod
-    fun startWiFiP2PGroup(channelToken: String, promise: Promise) {
+    fun startWiFiP2PDiscovery(channelToken: String, promise: Promise) {
         radioHandler.post {
             try {
-                // Register DNS-SD local service
-                val record = mapOf("channel" to channelToken, "proto" to "konvoy")
+                // 1. Start TCP ServerSocket if not already running
+                if (serverSocket == null) {
+                    serverSocket = ServerSocket(0) // OS assigns port
+                    // Accept connections in background
+                    Thread {
+                        while (serverSocket != null && !serverSocket!!.isClosed) {
+                            try {
+                                val clientSocket = serverSocket!!.accept()
+                                val peerId = clientSocket.remoteSocketAddress.toString()
+                                val peer = PeerConnection(
+                                    peerId = peerId,
+                                    socket = clientSocket,
+                                    outputStream = clientSocket.getOutputStream(),
+                                    inputStream = clientSocket.getInputStream()
+                                )
+                                connectedPeers[peerId] = peer
+                                isWifiP2PConnected = true
+                                startReadLoop(peer)
+                            } catch (e: Exception) {
+                                if (serverSocket?.isClosed != true) {
+                                    Log.e(TAG, "Accept error", e)
+                                }
+                            }
+                        }
+                    }.start()
+                }
+
+                val port = serverSocket!!.localPort
+
+                // 2. Register DNS-SD local service
+                val record = mapOf("channel" to channelToken, "proto" to "konvoy", "port" to port.toString())
                 val serviceInfo = WifiP2pDnsSdServiceInfo.newInstance(
                     SERVICE_INSTANCE, SERVICE_TYPE, record
                 )
 
-                wifiP2pManager?.addLocalService(wifiP2pChannel, serviceInfo,
-                    object : WifiP2pManager.ActionListener {
-                        override fun onSuccess() {
-                            Log.i(TAG, "Wi-Fi P2P service registered")
-                        }
-                        override fun onFailure(reason: Int) {
-                            Log.e(TAG, "Wi-Fi P2P service registration failed: $reason")
+                wifiP2pManager?.clearLocalServices(wifiP2pChannel, object : WifiP2pManager.ActionListener {
+                    override fun onSuccess() {
+                        wifiP2pManager?.addLocalService(wifiP2pChannel, serviceInfo, object : WifiP2pManager.ActionListener {
+                            override fun onSuccess() {
+                                Log.i(TAG, "Wi-Fi P2P service registered with port $port")
+                            }
+                            override fun onFailure(reason: Int) {
+                                Log.e(TAG, "Wi-Fi P2P service registration failed: $reason")
+                            }
+                        })
+                    }
+                    override fun onFailure(reason: Int) {}
+                })
+
+                // 3. Setup Listeners for Discovery
+                val txtListener = WifiP2pManager.DnsSdTxtRecordListener { _, recordMap, device ->
+                    if (recordMap["channel"] == channelToken && recordMap.containsKey("port")) {
+                        recordMap["port"]?.toIntOrNull()?.let { discoveredPort ->
+                            discoveredPorts[device.deviceAddress] = discoveredPort
                         }
                     }
-                )
-
-                // Create group
-                wifiP2pManager?.createGroup(wifiP2pChannel,
-                    object : WifiP2pManager.ActionListener {
-                        override fun onSuccess() {
-                            // Start TCP server for data exchange
-                            startTCPServer(promise)
-                        }
-                        override fun onFailure(reason: Int) {
-                            promise.reject("WIFI_P2P_ERROR", "Failed to create group: $reason")
-                        }
-                    }
-                )
-            } catch (e: SecurityException) {
-                promise.reject("PERMISSION_ERROR", "Wi-Fi P2P permission denied", e)
-            }
-        }
-    }
-
-    private fun startTCPServer(promise: Promise) {
-        radioHandler.post {
-            try {
-                serverSocket = ServerSocket(0) // OS assigns port
-                val port = serverSocket!!.localPort
-
-                val result = Arguments.createMap().apply {
-                    putString("address", "0.0.0.0")
-                    putInt("port", port)
-                    putBoolean("isGroupOwner", true)
                 }
-                promise.resolve(result)
 
-                // Accept connections in background
-                Thread {
-                    while (serverSocket != null && !serverSocket!!.isClosed) {
-                        try {
-                            val clientSocket = serverSocket!!.accept()
-                            val peerId = clientSocket.remoteSocketAddress.toString()
-                            val peer = PeerConnection(
-                                peerId = peerId,
-                                socket = clientSocket,
-                                outputStream = clientSocket.getOutputStream(),
-                                inputStream = clientSocket.getInputStream()
-                            )
-                            connectedPeers[peerId] = peer
-                            startReadLoop(peer)
-                        } catch (e: Exception) {
-                            if (serverSocket?.isClosed != true) {
-                                Log.e(TAG, "Accept error", e)
+                val servListener = WifiP2pManager.DnsSdServiceResponseListener { instanceName, _, device ->
+                    if (instanceName == SERVICE_INSTANCE) {
+                        // Found a matching service, initiate connection!
+                        val config = WifiP2pConfig().apply {
+                            deviceAddress = device.deviceAddress
+                        }
+                        wifiP2pManager?.connect(wifiP2pChannel, config, object : WifiP2pManager.ActionListener {
+                            override fun onSuccess() {
+                                Log.i(TAG, "Initiated P2P connection to ${device.deviceAddress}")
+                            }
+                            override fun onFailure(reason: Int) {
+                                Log.e(TAG, "Failed to connect to P2P device: $reason")
+                            }
+                        })
+                    }
+                }
+
+                wifiP2pManager?.setDnsSdResponseListeners(wifiP2pChannel, servListener, txtListener)
+
+                // 4. Start Discovery
+                val serviceRequest = WifiP2pDnsSdServiceRequest.newInstance()
+                wifiP2pManager?.clearServiceRequests(wifiP2pChannel, object : WifiP2pManager.ActionListener {
+                    override fun onSuccess() {
+                        wifiP2pManager?.addServiceRequest(wifiP2pChannel, serviceRequest, object : WifiP2pManager.ActionListener {
+                            override fun onSuccess() {
+                                wifiP2pManager?.discoverServices(wifiP2pChannel, object : WifiP2pManager.ActionListener {
+                                    override fun onSuccess() {
+                                        isDiscovering = true
+                                        promise.resolve(true)
+                                    }
+                                    override fun onFailure(reason: Int) {
+                                        promise.reject("DISCOVERY_FAILED", "Failed to discover services: $reason")
+                                    }
+                                })
+                            }
+                            override fun onFailure(reason: Int) {
+                                promise.reject("REQ_FAILED", "Failed to add service request: $reason")
+                            }
+                        })
+                    }
+                    override fun onFailure(reason: Int) {}
+                })
+
+                // 5. Register Broadcast Receiver for Connection Changed
+                if (p2pReceiver == null) {
+                    p2pReceiver = object : BroadcastReceiver() {
+                        override fun onReceive(context: Context, intent: Intent) {
+                            if (WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION == intent.action) {
+                                val networkInfo = intent.getParcelableExtra<android.net.NetworkInfo>(WifiP2pManager.EXTRA_NETWORK_INFO)
+                                if (networkInfo?.isConnected == true) {
+                                    wifiP2pManager?.requestConnectionInfo(wifiP2pChannel) { info ->
+                                        if (info.groupFormed && !info.isGroupOwner) {
+                                            // We are client, connect TCP to GO
+                                            val goAddress = info.groupOwnerAddress.hostAddress
+                                            if (goAddress != null) {
+                                                Thread {
+                                                    for (discoveredPort in discoveredPorts.values) {
+                                                        try {
+                                                            val socket = Socket(goAddress, discoveredPort)
+                                                            val peerId = "$goAddress:$discoveredPort"
+                                                            val peer = PeerConnection(
+                                                                peerId = peerId,
+                                                                socket = socket,
+                                                                outputStream = socket.getOutputStream(),
+                                                                inputStream = socket.getInputStream()
+                                                            )
+                                                            connectedPeers[peerId] = peer
+                                                            isWifiP2PConnected = true
+                                                            startReadLoop(peer)
+                                                            break // Success
+                                                        } catch (e: Exception) {
+                                                            // Ignore and try next port
+                                                        }
+                                                    }
+                                                }.start()
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    isWifiP2PConnected = false
+                                }
                             }
                         }
                     }
-                }.start()
-            } catch (e: Exception) {
-                promise.reject("TCP_ERROR", "Failed to start TCP server", e)
+                    val intentFilter = IntentFilter(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION)
+                    reactApplicationContext.registerReceiver(p2pReceiver, intentFilter)
+                }
+
+            } catch (e: SecurityException) {
+                promise.reject("PERMISSION_ERROR", "Wi-Fi P2P permission denied", e)
             }
         }
     }
@@ -485,6 +566,9 @@ class KonvoyRadioModule(reactContext: ReactApplicationContext) :
         stopBLEBeacon()
         stopBLEScan()
         disconnectWiFiP2P()
+        if (p2pReceiver != null) {
+            try { reactApplicationContext.unregisterReceiver(p2pReceiver) } catch (e: Exception) {}
+        }
         radioThread.quitSafely()
     }
 }
