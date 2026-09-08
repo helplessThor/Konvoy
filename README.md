@@ -16,6 +16,7 @@ Unlike proprietary motorcycle intercom headsets (Sena, Cardo) that cost hundreds
 
 ### 🎙️ Direct Rider-to-Rider Voice Intercom
 - **No Cellular or Wi-Fi Router Required**: Communicates bike-to-bike directly using peer-to-peer Wi-Fi Direct and Bluetooth Low Energy (BLE).
+- **Nostr Internet Bridge**: Automatically forwards and syncs all mesh communications over public Nostr relays globally with AES-256-GCM encryption when cellular connectivity is available.
 - **Push-to-Talk & Hands-Free (VOX)**:
   - **Hold to Talk**: Traditional PTT for glove-friendly momentary transmission.
   - **Tap to Talk / VOX**: Tap once to talk hands-free; voice activity detection (VAD) automatically suppresses exhaust roar and wind howl.
