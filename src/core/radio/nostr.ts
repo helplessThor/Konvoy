@@ -69,13 +69,10 @@ export class NostrTransport {
     // 3. Subscribe to the channel tag
     this.sub = this.pool.subscribeMany(
       RELAYS,
-      [
-        {
-          kinds: [29333],
-          '#h': [this.channelHash],
-          since: Math.floor(Date.now() / 1000) - 60, // Allow for 1 minute of clock drift
-        }
-      ] as any,
+      {
+        kinds: [29333],
+        '#h': [this.channelHash],
+      } as any,
       {
         onevent: (event) => this.handleEvent(event),
       }
@@ -131,8 +128,14 @@ export class NostrTransport {
       // Track our own event to prevent echoing
       this.seenEventIds.add(event.id);
       
-      // 3. Publish to relays
-      this.pool.publish(RELAYS, event);
+      // 3. Fire-and-forget publish to relays
+      const publishes = this.pool.publish(RELAYS, event);
+      Promise.allSettled(publishes).then((results) => {
+        const failed = results.filter(r => r.status === 'rejected');
+        if (failed.length === RELAYS.length) {
+          console.warn('[Nostr] All relays failed to publish packet');
+        }
+      });
     } catch (err) {
       console.warn('[NostrTransport] Failed to encrypt/publish packet:', err);
     }

@@ -130,6 +130,14 @@ export class MeshOrchestrator {
     // Start native BLE and Wi-Fi Direct
     await this.transport.start(advData);
 
+    // Try starting a Wi-Fi Direct group implicitly using a generic token for the local mesh
+    const tokenBuffer = new Uint8Array(8);
+    tokenBuffer.fill(0x01); // Generic fallback token for now
+    const channelTokenHex = Array.from(tokenBuffer).map(b => b.toString(16).padStart(2, '0')).join('');
+    this.transport.startWiFiP2P(channelTokenHex).catch(err => {
+      console.warn('[MeshOrchestrator] Failed to start Wi-Fi P2P group:', err);
+    });
+
     // Start velocity-adaptive broadcasting
     this.telemetry.startBroadcasting();
     useConvoyStore.getState().setIsBroadcasting(true);
