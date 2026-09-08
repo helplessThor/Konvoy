@@ -1,6 +1,6 @@
 {
   "name": "com.konvoy.app",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "private": true,
   "scripts": {
     "android": "react-native run-android",
@@ -25,6 +25,7 @@
     "react-native-haptic-feedback": "latest",
     "react-native-mmkv": "latest",
     "react-native-nitro-modules": "^0.37.1",
+    "react-native-quick-base64": "^3.0.1",
     "react-native-quick-crypto": "latest",
     "react-native-reanimated": "latest",
     "react-native-safe-area-context": "^5.5.2",

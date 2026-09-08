@@ -355,7 +355,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
         {/* ─── Build Info ─────────────────────────────────────────────── */}
         <View style={styles.footer}>
-          <Text style={styles.footerText}>Konvoy v1.2.2 (Build 2026.09)</Text>
+          <Text style={styles.footerText}>Konvoy v1.2.3 (Build 2026.09)</Text>
           <Text style={styles.footerSubtext}>Zero-Infrastructure Convoy Mesh • New Architecture</Text>
         </View>
       </ScrollView>
