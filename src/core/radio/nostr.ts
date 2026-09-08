@@ -73,7 +73,7 @@ export class NostrTransport {
         {
           kinds: [29333],
           '#h': [this.channelHash],
-          since: Math.floor(Date.now() / 1000), // Only listen to new events
+          since: Math.floor(Date.now() / 1000) - 60, // Allow for 1 minute of clock drift
         }
       ] as any,
       {

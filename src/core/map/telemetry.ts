@@ -235,7 +235,7 @@ export class TelemetryManager {
    * Broadcast our current position as a GPS Telemetry packet.
    */
   private broadcastPosition(): void {
-    if (!this.ownPosition || !this.originatePacket || !this.getFingerprint || !this.getChannelToken) {
+    if (!this.originatePacket || !this.getFingerprint || !this.getChannelToken) {
       return;
     }
 
@@ -243,7 +243,19 @@ export class TelemetryManager {
     const channelToken = this.getChannelToken();
     if (!fingerprint || !channelToken) return;
 
-    const payload = encodeGPSTelemetry(this.ownPosition);
+    // Provide a zero-coordinate fallback if GPS hasn't locked yet.
+    // This ensures peer discovery works indoors or before GPS fixes.
+    const pos = this.ownPosition || {
+      latitude: 0,
+      longitude: 0,
+      heading: 0,
+      speed: 0,
+      altitude: 0,
+      accuracy: 9999,
+      timestamp: Math.floor(Date.now() / 1000),
+    };
+
+    const payload = encodeGPSTelemetry(pos);
 
     // Create a simple packet ID from sequence + fingerprint bytes
     const packetId = new Uint8Array(8);
