@@ -22,7 +22,6 @@ import {
   Modal,
   Animated,
   Alert,
-  ScrollView,
 } from 'react-native';
 import { Map, Camera, Marker } from '@maplibre/maplibre-react-native';
 import { Colors, Typography, Spacing, TouchTargets, Radius, Shadows } from '../theme/tokens';
@@ -46,6 +45,8 @@ export interface PeerTelemetry {
 }
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+
+const CARTO_API_KEY = 'cb1_2kri_1_28a2782e56eff9b9ea76ac22';
 
 // Direct Google Maps & High-Contrast Tactical Styles (No white screens, 100% reliable)
 export const GOOGLE_MAP_STYLES: Record<MapStyleKey, any> = {
@@ -131,10 +132,10 @@ export const GOOGLE_MAP_STYLES: Record<MapStyleKey, any> = {
       'carto-dark-tiles': {
         type: 'raster',
         tiles: [
-          'https://a.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png',
-          'https://b.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png',
-          'https://c.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png',
-          'https://d.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png',
+          `https://a.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png?api_key=${CARTO_API_KEY}`,
+          `https://b.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png?api_key=${CARTO_API_KEY}`,
+          `https://c.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png?api_key=${CARTO_API_KEY}`,
+          `https://d.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png?api_key=${CARTO_API_KEY}`,
         ],
         tileSize: 256,
       },
@@ -234,6 +235,10 @@ export const MapScreen: React.FC<MapScreenProps> = ({
   const [viewMode, setViewMode] = useState<'MAP' | 'RADAR'>('MAP');
   const selectedStyle = useSettingsStore((state) => state.mapStyle);
   const setMapStyle = useSettingsStore((state) => state.setMapStyle);
+
+  const mapStyleString = useMemo(() => {
+    return JSON.stringify(GOOGLE_MAP_STYLES[selectedStyle] || GOOGLE_MAP_STYLES.GOOGLE_ROAD);
+  }, [selectedStyle]);
   const [selectedHazard, setSelectedHazard] = useState<HazardEntry | null>(null);
   const [dropHazardModalVisible, setDropHazardModalVisible] = useState(false);
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -427,8 +432,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({
 
       {/* View Switcher & Recenter Floating Controls */}
       <View style={styles.viewControlsRow}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.scrollControls}>
-          <View style={styles.modeToggleGroup}>
+        <View style={styles.modeToggleGroup}>
           <TouchableOpacity
             style={[styles.modeButton, viewMode === 'MAP' && styles.modeButtonActive]}
             onPress={() => setViewMode('MAP')}
@@ -481,7 +485,6 @@ export const MapScreen: React.FC<MapScreenProps> = ({
             </TouchableOpacity>
           </View>
         )}
-        </ScrollView>
       </View>
 
       {/* ─── Map / Radar Area ─────────────────────────────────────────── */}
@@ -489,7 +492,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({
         <View style={styles.mapContainer}>
           <Map
             style={styles.map}
-            mapStyle={JSON.stringify(GOOGLE_MAP_STYLES[selectedStyle] || GOOGLE_MAP_STYLES.GOOGLE_ROAD)}
+            mapStyle={mapStyleString}
           >
             <Camera
               ref={cameraRef}
@@ -652,7 +655,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({
           <Text style={styles.dropHazardText}>REPORT HAZARD</Text>
         </TouchableOpacity>
 
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickHazardRow}>
+        <View style={styles.quickHazardRow}>
           <TouchableOpacity
             style={[styles.quickTile, { borderColor: Colors.hazardPolice }]}
             onPress={() => handleQuickDrop(HazardType.Police)}
@@ -684,7 +687,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({
             <Text style={styles.quickEmoji}>🚗</Text>
             <Text style={styles.quickText}>TRAFFIC</Text>
           </TouchableOpacity>
-        </ScrollView>
+        </View>
       </View>
 
       {/* ─── Hazard Detail Modal ───────────────────────────────────────── */}
@@ -909,11 +912,11 @@ const styles = StyleSheet.create({
     top: 130,
     left: Spacing.base,
     right: Spacing.base,
-    zIndex: 20,
-  },
-  scrollControls: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
     gap: 8,
-    paddingRight: Spacing.xl,
+    zIndex: 20,
   },
   modeToggleGroup: {
     flexDirection: 'row',
@@ -1177,12 +1180,15 @@ const styles = StyleSheet.create({
   },
   quickHazardRow: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
     marginTop: Spacing.md,
     gap: 6,
   },
   quickTile: {
+    flex: 1,
     height: 48,
-    minWidth: 90,
+    minWidth: 70,
     paddingHorizontal: 12,
     backgroundColor: Colors.surfaceElevated,
     borderWidth: 1.5,
