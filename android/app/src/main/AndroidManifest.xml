@@ -7,21 +7,7 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
 
-    <!-- Wi-Fi Direct P2P & Nearby Devices (Android 13+) -->
-    <uses-permission
-        android:name="android.permission.NEARBY_WIFI_DEVICES"
-        android:usesPermissionFlags="neverForLocation"
-        tools:targetApi="tiramisu" />
 
-    <!-- Bluetooth Low Energy (Legacy & Android 12+) -->
-    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
-    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
-    <uses-permission
-        android:name="android.permission.BLUETOOTH_SCAN"
-        android:usesPermissionFlags="neverForLocation"
-        tools:targetApi="s" />
-    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" tools:targetApi="s" />
-    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" tools:targetApi="s" />
 
     <!-- Audio Capture & Communication -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
@@ -34,7 +20,6 @@
     <!-- Background Execution & Foreground Service -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" tools:targetApi="upside_down_cake" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" tools:targetApi="upside_down_cake" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" tools:targetApi="upside_down_cake" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" tools:targetApi="tiramisu" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
@@ -54,7 +39,7 @@
         android:name="com.konvoy.app.services.KonvoyForegroundService"
         android:enabled="true"
         android:exported="false"
-        android:foregroundServiceType="microphone|connectedDevice|location" />
+        android:foregroundServiceType="microphone|location" />
 
       <activity
         android:name=".MainActivity"

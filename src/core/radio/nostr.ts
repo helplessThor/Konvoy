@@ -13,6 +13,7 @@ import { Buffer } from 'buffer';
 import { uint8ArrayToBase64, base64ToUint8Array } from '../utils/base64';
 
 export type OnNostrPacketReceived = (peerId: string, data: ArrayBuffer) => void;
+export type OnNostrSignalReceived = (signalJson: string) => void;
 
 const RELAYS = [
   'wss://relay.damus.io',
@@ -30,6 +31,7 @@ export class NostrTransport {
   private encryptionKey: Uint8Array | null = null;
 
   private onPacketReceived: OnNostrPacketReceived | null = null;
+  private onSignalReceived: OnNostrSignalReceived | null = null;
   private sub: any = null;
 
   // Track recent events to prevent echo loops
@@ -44,6 +46,10 @@ export class NostrTransport {
 
   setCallbacks(onPacketReceived: OnNostrPacketReceived) {
     this.onPacketReceived = onPacketReceived;
+  }
+
+  setSignalCallback(onSignalReceived: OnNostrSignalReceived) {
+    this.onSignalReceived = onSignalReceived;
   }
 
   /**
@@ -141,6 +147,32 @@ export class NostrTransport {
     }
   }
 
+  /**
+   * Broadcast a raw JSON signal over Nostr (unencrypted)
+   */
+  async publishSignal(signalJson: string): Promise<void> {
+    if (!this.isRunning || !this.channelHash) return;
+
+    try {
+      const eventTemplate = {
+        kind: 29333,
+        created_at: Math.floor(Date.now() / 1000),
+        tags: [
+          ['h', this.channelHash],
+          ['webrtc-signal', 'true']
+        ],
+        content: signalJson,
+      };
+
+      const event = finalizeEvent(eventTemplate, this.burnerSecretKey);
+      this.seenEventIds.add(event.id);
+      
+      this.pool.publish(RELAYS, event).forEach(p => p.catch(() => {}));
+    } catch (err) {
+      console.warn('[NostrTransport] Failed to publish signal:', err);
+    }
+  }
+
   private handleEvent(event: any) {
     if (!this.onPacketReceived || !this.encryptionKey) return;
     
@@ -152,6 +184,17 @@ export class NostrTransport {
     if (this.seenEventIds.size > 1000) {
       this.seenEventIds.clear();
     }
+
+    // Check if this is a WebRTC signal
+    const isSignal = event.tags?.some((t: string[]) => t[0] === 'webrtc-signal' && t[1] === 'true');
+    if (isSignal) {
+      if (this.onSignalReceived) {
+        this.onSignalReceived(event.content);
+      }
+      return;
+    }
+
+    if (!this.onPacketReceived) return;
 
     try {
       // 1. Decode base64

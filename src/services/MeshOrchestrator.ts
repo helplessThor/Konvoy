@@ -6,8 +6,10 @@
  * It handles the lifecycle and wires all events together.
  */
 
-import { RadioTransport } from '../core/radio/transport';
+
+import { Buffer } from 'buffer';
 import { NostrTransport } from '../core/radio/nostr';
+import { WebRTCTransport } from '../core/radio/WebRTCTransport';
 import { MeshRouter } from '../core/net/router';
 import { TelemetryManager } from '../core/map/telemetry';
 import { locationService } from './LocationService';
@@ -18,18 +20,21 @@ import { useHazardStore } from '../core/map/crdt';
 export class MeshOrchestrator {
   private static instance: MeshOrchestrator | null = null;
   
-  public transport: RadioTransport;
+
   public nostr: NostrTransport;
+  public webrtc: WebRTCTransport;
   public router: MeshRouter;
   public telemetry: TelemetryManager;
 
   private isRunning: boolean = false;
 
   private constructor() {
-    this.transport = new RadioTransport();
+
     this.nostr = new NostrTransport();
     this.router = new MeshRouter();
     this.telemetry = new TelemetryManager();
+    // Use an empty fingerprint initially, update when starting
+    this.webrtc = new WebRTCTransport(this.nostr, '');
 
     this.wireSubsystems();
   }
@@ -45,14 +50,16 @@ export class MeshOrchestrator {
     // 1. Configure Router -> Transport (Outgoing)
     this.router.setTransport(
       (peerId, data) => {
+        // Broadcast all packets to WebRTC data channels
+        this.webrtc.broadcastPacket(data);
+        
+        // Also broadcast over Nostr as a fallback for GPS (Nostr might drop voice)
         if (peerId === 'nostr-channel') {
           this.nostr.broadcastPacket(data);
-        } else {
-          this.transport.sendPacket(peerId, data);
         }
       },
       () => {
-        const peers = this.transport.getConnectedPeers();
+        const peers: string[] = [];
         // Expose Nostr channel as a connected peer so the router broadcasts to it
         if ((this.nostr as any).isRunning) {
           peers.push('nostr-channel');
@@ -62,20 +69,18 @@ export class MeshOrchestrator {
     );
 
     // 2. Configure Transport -> Router (Incoming)
-    this.transport.setCallbacks({
-      onPacketReceived: (peerId, data) => {
-        this.router.handleIncoming(peerId, data);
-      },
-      onPeerDiscovered: (peer) => {
-        console.log('[MeshOrchestrator] Discovered peer:', peer.peerId);
-        // We could update a UI store here if needed for discovering status
-      },
-      onPeerLost: (peerId) => {
-        console.log('[MeshOrchestrator] Lost peer:', peerId);
-      }
-    });
 
     this.nostr.setCallbacks((peerId, data) => {
+        // Automatically attempt to upgrade any Nostr peer to WebRTC
+        this.webrtc.initiateConnection(peerId);
+        this.router.handleIncoming(peerId, data);
+    });
+
+    this.nostr.setSignalCallback((signalJson) => {
+      this.webrtc.handleSignal(signalJson);
+    });
+    
+    this.webrtc.setCallbacks((peerId, data) => {
       this.router.handleIncoming(peerId, data);
     });
 
@@ -85,6 +90,10 @@ export class MeshOrchestrator {
       getFingerprint: () => useIdentityStore.getState().identity?.fingerprint ?? null,
       getChannelToken: () => {
         // Use a generic group token or derived from identity
+        const identity = useIdentityStore.getState().identity;
+        const advData = identity?.fingerprint ?? new Uint8Array(16);
+        // Update WebRTC local fingerprint
+        (this.webrtc as any).localFingerprint = identity?.fingerprint ? Buffer.from(identity.fingerprint).toString('hex') : 'local';
         const token = new Uint8Array(16);
         token.fill(0x01);
         return token;
@@ -121,23 +130,6 @@ export class MeshOrchestrator {
     if (this.isRunning) return;
     this.isRunning = true;
 
-    // Must be called after React Native native modules are ready
-    this.transport.initialize();
-
-    const identity = useIdentityStore.getState().identity;
-    const advData = identity?.fingerprint ?? new Uint8Array(16);
-
-    // Start native BLE and Wi-Fi Direct
-    await this.transport.start(advData);
-
-    // Try starting a Wi-Fi Direct group implicitly using a generic token for the local mesh
-    const tokenBuffer = new Uint8Array(8);
-    tokenBuffer.fill(0x01); // Generic fallback token for now
-    const channelTokenHex = Array.from(tokenBuffer).map(b => b.toString(16).padStart(2, '0')).join('');
-    this.transport.startWiFiP2PDiscovery(channelTokenHex).catch(err => {
-      console.warn('[MeshOrchestrator] Failed to start Wi-Fi P2P discovery:', err);
-    });
-
     // Start velocity-adaptive broadcasting
     this.telemetry.startBroadcasting();
     useConvoyStore.getState().setIsBroadcasting(true);
@@ -157,7 +149,6 @@ export class MeshOrchestrator {
     this.telemetry.stopBroadcasting();
     useConvoyStore.getState().setIsBroadcasting(false);
 
-    this.transport.stop();
     this.nostr.disconnect();
   }
 
